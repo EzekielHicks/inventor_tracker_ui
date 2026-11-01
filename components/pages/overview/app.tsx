@@ -18,7 +18,7 @@ export default function OverviewApp() {
 	return (
 		<PageTemplate
 			eyebrow="WORKSPACE OVERVIEW"
-			title={`Good morning, ${activeUser.name.split(" ")[0]}`}
+			title={`Hi, ${activeUser.name.split(" ")[0]}`}
 			description="Here’s what’s happening with your inventory today."
 			action={canManageInventory
 				? <Link className="primary-button" href="/inventory">Edit products <Icon name="chevron" size={15} /></Link>
