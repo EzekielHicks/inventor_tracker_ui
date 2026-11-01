@@ -30,11 +30,11 @@ export default function Page() {
 		<main className="user-picker-screen">
 			<div className="user-picker-brand"><span className="brand-mark"><Icon name="box" size={21} /></span><span>stockroom<span className="brand-dot">.</span></span></div>
 			<div className="user-picker-content">
-				<div className="user-picker-heading"><span className="eyebrow">INVENTORY WORKSPACE</span><h1>{addingUser ? "Add a user" : "Who's using Stockroom?"}</h1><p>{addingUser ? "Create a local profile to personalize this workspace." : "Select a profile to continue to your workspace."}</p></div>
+				<div className="user-picker-heading"><span className="eyebrow">Welcome to stockroom.</span><h1>{addingUser ? "Add a user" : "Who's using Stockroom?"}</h1><p>{addingUser ? "Create a local profile to personalize this workspace." : "Select a profile to continue to your workspace."}</p></div>
 				{addingUser ? (
 					<form className="add-user-form" onSubmit={createUser}>
 						<label htmlFor="new-user-name">Your name</label>
-						<input id="new-user-name" autoFocus autoComplete="name" maxLength={32} placeholder="e.g. Jordan Davis" required value={name} onChange={(event) => setName(event.target.value)} />
+						<input id="new-user-name" autoFocus autoComplete="name" maxLength={32} placeholder="e.g. While E. Coyote" required value={name} onChange={(event) => setName(event.target.value)} />
 						<label htmlFor="new-user-role">Workspace role</label>
 						<select id="new-user-role" value={role} onChange={(event) => setRole(event.target.value as UserRole)}><option value="Team Member">Team member</option><option value="Manager">Manager</option><option value="Admin">Admin</option></select>
 						<p className="role-demo-note">Roles are local demo settings, not secure account permissions.</p>
