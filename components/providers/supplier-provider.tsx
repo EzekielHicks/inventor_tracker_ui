@@ -48,7 +48,6 @@ type SupplierContextValue = SupplierState & {
 	renameRequestedProduct: (oldName: string, newName: string) => void;
 	requestSourcing: (request: Omit<SourcingRequest, "id" | "createdAt" | "status" | "siteName" | "supplierName">) => void;
 	requestSourcingBatch: (requests: Omit<SourcingRequest, "id" | "createdAt" | "status" | "siteName" | "supplierName">[]) => void;
-	reviewRequest: (id: string, status: "Sourcing approved" | "Approved" | "Rejected", reviewer: string) => void;
 	markRequestSubmitted: (id: string) => void;
 };
 
@@ -81,7 +80,19 @@ function isSupplierState(value: unknown): value is SupplierState {
 		&& Array.isArray(value.sites)
 		&& value.sites.every((item) => isRecord(item) && typeof item.id === "string" && typeof item.name === "string" && (item.type === "search" || item.type === "api") && typeof item.url === "string")
 		&& Array.isArray(value.requests)
-		&& value.requests.every((item) => isRecord(item) && typeof item.id === "string" && (item.supplierId === undefined || typeof item.supplierId === "string") && (item.supplierName === undefined || typeof item.supplierName === "string") && typeof item.productName === "string" && typeof item.quantity === "number" && typeof item.siteId === "string" && typeof item.siteName === "string" && typeof item.requesterId === "string" && typeof item.requesterName === "string" && typeof item.createdAt === "string" && ["Pending review", "Sourcing approved", "Approved", "Rejected", "Submitted"].includes(String(item.status)));
+		&& value.requests.every((item) => isRecord(item) && typeof item.id === "string" && (item.supplierId === undefined || typeof item.supplierId === "string") && (item.supplierName === undefined || typeof item.supplierName === "string") && typeof item.productName === "string" && typeof item.quantity === "number" && (item.siteId === undefined || typeof item.siteId === "string") && (item.siteName === undefined || typeof item.siteName === "string") && typeof item.requesterId === "string" && typeof item.requesterName === "string" && typeof item.createdAt === "string" && ["Pending review", "Sourcing approved", "Approved", "Rejected", "Submitted"].includes(String(item.status)));
+}
+
+function migrateSupplierState(value: SupplierState): SupplierState {
+	return {
+		...value,
+		requests: value.requests.map((request) => ({
+			...request,
+			siteId: request.siteId ?? "",
+			siteName: request.siteName || "No web search",
+			status: request.status === "Sourcing approved" || request.status === "Approved" ? "Pending review" : request.status,
+		})),
+	};
 }
 
 function loadState() {
@@ -92,7 +103,12 @@ function loadState() {
 		if (!saved) return;
 		const parsed: unknown = JSON.parse(saved);
 		if (isSupplierState(parsed)) {
-			stateSnapshot = parsed;
+			stateSnapshot = migrateSupplierState(parsed);
+			if (stateSnapshot.requests.some((request, index) => request.siteId !== parsed.requests[index].siteId
+				|| request.siteName !== parsed.requests[index].siteName
+				|| request.status !== parsed.requests[index].status)) {
+				localStorage.setItem(STORAGE_KEY, JSON.stringify(stateSnapshot));
+			}
 		} else {
 			console.error("Saved supplier workspace data is invalid; using the defaults.");
 		}
@@ -149,7 +165,7 @@ function validatePhoneNumber(value: string) {
 }
 
 export function buildSiteUrl(site: SourcingSite, productName: string) {
-	if (site.type !== "search" || !site.url.includes("{query}")) {
+	if (site.type !== "search" || !site.url || !site.url.includes("{query}")) {
 		throw new Error("This site does not have a usable search URL template.");
 	}
 	const safeTemplate = validatedHttpsUrl(site.url.replace("{query}", encodeURIComponent(productName)), "Search URL");
@@ -183,11 +199,13 @@ export function SupplierProvider({ children }: { children: ReactNode }) {
 		saveState({ ...current, suppliers: current.suppliers.filter((item) => item.id !== id) });
 	}, []);
 	const saveSite = useCallback((id: string | null, site: Omit<SourcingSite, "id">) => {
-		if (site.type === "search") {
-			if (!site.url.includes("{query}")) throw new Error("Search URL must include a {query} placeholder.");
-			validatedHttpsUrl(site.url.replace("{query}", "test"), "Search URL");
-		} else {
-			validatedHttpsUrl(site.url, "API endpoint");
+		const url = site.url.trim();
+		if (!site.name.trim()) throw new Error("A sourcing template name is required.");
+		if (site.type === "search" && url) {
+			if (!url.includes("{query}")) throw new Error("Search URL must include a {query} placeholder.");
+			validatedHttpsUrl(url.replace("{query}", "test"), "Search URL");
+		} else if (site.type === "api" && url) {
+			validatedHttpsUrl(url, "API endpoint");
 		}
 		const current = getSnapshot();
 		const duplicate = current.sites.some((item) => item.id !== id && item.name.toLowerCase() === site.name.trim().toLowerCase());
@@ -196,8 +214,8 @@ export function SupplierProvider({ children }: { children: ReactNode }) {
 		saveState({
 			...current,
 			sites: id
-				? current.sites.map((item) => item.id === id ? { ...site, name: site.name.trim(), id } : item)
-				: [...current.sites, { ...site, name: site.name.trim(), id: crypto.randomUUID() }],
+				? current.sites.map((item) => item.id === id ? { ...site, name: site.name.trim(), url, id } : item)
+				: [...current.sites, { ...site, name: site.name.trim(), url, id: crypto.randomUUID() }],
 		});
 	}, []);
 	const addSite = useCallback((site: Omit<SourcingSite, "id">) => saveSite(null, site), [saveSite]);
@@ -223,25 +241,21 @@ export function SupplierProvider({ children }: { children: ReactNode }) {
 			if (!Number.isSafeInteger(request.quantity) || request.quantity < 1) throw new Error("Request quantity must be a positive whole number.");
 			const supplier = current.suppliers.find((item) => item.id === request.supplierId);
 			if (!supplier) throw new Error("Choose a valid supplier for each requested product.");
-			const site = current.sites.find((item) => item.id === request.siteId && item.type === "search");
-			if (!site) throw new Error("Choose a configured web search site for each requested product.");
-			return { ...request, supplierName: supplier.name, siteName: site.name, id: crypto.randomUUID(), createdAt, status: "Pending review" as const };
+			const site = request.siteId
+				? current.sites.find((item) => item.id === request.siteId && item.type === "search")
+				: undefined;
+			if (request.siteId && !site) throw new Error("Choose a configured web search site or leave it blank.");
+			return { ...request, siteId: site?.id ?? "", supplierName: supplier.name, siteName: site?.name ?? "No web search", id: crypto.randomUUID(), createdAt, status: "Pending review" as const };
 		});
 		saveState({ ...current, requests: [...newRequests, ...current.requests] });
 	}, []);
 	const requestSourcing = useCallback((request: Omit<SourcingRequest, "id" | "createdAt" | "status" | "siteName" | "supplierName">) => requestSourcingBatch([request]), [requestSourcingBatch]);
-	const reviewRequest = useCallback((id: string, status: "Sourcing approved" | "Approved" | "Rejected", reviewer: string) => {
-		const current = getSnapshot();
-		const request = current.requests.find((item) => item.id === id);
-		const validTransition = request?.status === "Pending review" && (status === "Sourcing approved" || status === "Rejected" || (!request.supplierId && status === "Approved"))
-			|| request?.status === "Sourcing approved" && (status === "Approved" || status === "Rejected");
-		if (!request || !validTransition) throw new Error("This request is no longer awaiting the selected review.");
-		saveState({ ...current, requests: current.requests.map((item) => item.id === id ? { ...item, status, reviewedBy: reviewer } : item) });
-	}, []);
 	const markRequestSubmitted = useCallback((id: string) => {
 		const current = getSnapshot();
 		const request = current.requests.find((item) => item.id === id);
-		if (!request || request.status !== "Approved") throw new Error("Only approved requests can be marked submitted.");
+		if (!request || !["Pending review", "Sourcing approved", "Approved"].includes(request.status)) {
+			throw new Error("This request is no longer open.");
+		}
 		saveState({ ...current, requests: current.requests.map((item) => item.id === id ? { ...item, status: "Submitted" } : item) });
 	}, []);
 	const value = useMemo(() => ({
@@ -255,9 +269,8 @@ export function SupplierProvider({ children }: { children: ReactNode }) {
 		renameRequestedProduct,
 		requestSourcing,
 		requestSourcingBatch,
-		reviewRequest,
 		markRequestSubmitted,
-	}), [state, addSupplier, updateSupplier, deleteSupplier, addSite, updateSite, deleteSite, renameRequestedProduct, requestSourcing, requestSourcingBatch, reviewRequest, markRequestSubmitted]);
+	}), [state, addSupplier, updateSupplier, deleteSupplier, addSite, updateSite, deleteSite, renameRequestedProduct, requestSourcing, requestSourcingBatch, markRequestSubmitted]);
 
 	return <SupplierContext.Provider value={value}>{children}</SupplierContext.Provider>;
 }

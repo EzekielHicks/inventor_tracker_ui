@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { LOW_STOCK_THRESHOLD, useInventory, type Product, type StockOrder } from "@/components/providers/inventory-provider";
+import { useInventory, type InventoryUsageItem, type Product, type StockOrder } from "@/components/providers/inventory-provider";
 import { useSuppliers } from "@/components/providers/supplier-provider";
 import { useUsers } from "@/components/providers/user-provider";
 import { useNotify } from "@/components/layout/workspace-shell";
@@ -10,12 +10,24 @@ import Icon from "@/components/ui/icon";
 type InventoryFilter = "All items" | Product["status"];
 type OrderRequestDraft = { productName: string; quantity: string; supplierId: string; siteId: string };
 
+const currencyFormatter = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+
+function formatCurrency(value: number | null | undefined) {
+	return value === null || value === undefined ? "Not set" : currencyFormatter.format(value);
+}
+
+function csvCell(value: string | number | null | undefined) {
+	const text = value === null || value === undefined ? "" : String(value);
+	const safeText = /^[\s]*[=+\-@]/.test(text) ? `'${text}` : text;
+	return `"${safeText.replaceAll('"', '""')}"`;
+}
+
 function createOrderRequestDraft(products: Product[], supplierId: string, siteId: string): OrderRequestDraft {
 	return { productName: products[0]?.name ?? "", quantity: "1", supplierId, siteId };
 }
 
 export default function InventoryCard() {
-	const { products, orders, usageRecords, addProduct, updateProduct, removeProduct, updateStock, orderStock, recordUsage } = useInventory();
+	const { products, orders, usageRecords, inventorySettings, usageDialogOpen, openUsageDialog, closeUsageDialog, addProduct, updateProduct, removeProduct, updateStock, orderStock, recordUsage } = useInventory();
 	const { suppliers, sites, requests, requestSourcingBatch, renameRequestedProduct } = useSuppliers();
 	const { activeUser, canManageInventory } = useUsers();
 	const notify = useNotify();
@@ -26,11 +38,10 @@ export default function InventoryCard() {
 	const [dialogMode, setDialogMode] = useState<"edit" | "order" | null>(null);
 	const [productFormMode, setProductFormMode] = useState<"add" | "edit" | null>(null);
 	const [editingProductName, setEditingProductName] = useState<string | null>(null);
-	const [productDraft, setProductDraft] = useState({ name: "", category: "", stock: "0" });
+	const [productDraft, setProductDraft] = useState({ name: "", category: "", stock: "0", unitCost: "", lowStockThreshold: "" });
 	const [productError, setProductError] = useState("");
 	const [draftUnits, setDraftUnits] = useState("");
 	const [selectedSupplier, setSelectedSupplier] = useState("");
-	const [usageDialogOpen, setUsageDialogOpen] = useState(false);
 	const [orderRequestOpen, setOrderRequestOpen] = useState(false);
 	const [orderRequestDrafts, setOrderRequestDrafts] = useState<OrderRequestDraft[]>([]);
 	const [orderRequestError, setOrderRequestError] = useState("");
@@ -72,14 +83,14 @@ export default function InventoryCard() {
 		const closeOnEscape = (event: KeyboardEvent) => {
 			if (event.key === "Escape") {
 				setDialogProduct(null);
-				setUsageDialogOpen(false);
+				closeUsageDialog();
 				setOrderRequestOpen(false);
 				setProductFormMode(null);
 			}
 		};
 		window.addEventListener("keydown", closeOnEscape);
 		return () => window.removeEventListener("keydown", closeOnEscape);
-	}, [dialogProduct, usageDialogOpen, orderRequestOpen, productFormMode]);
+	}, [dialogProduct, usageDialogOpen, orderRequestOpen, productFormMode, closeUsageDialog]);
 
 	const openProductForm = (mode: "add" | "edit", product?: Product) => {
 		setProductError("");
@@ -89,6 +100,8 @@ export default function InventoryCard() {
 			name: product?.name ?? "",
 			category: product?.category ?? "",
 			stock: String(product?.stock ?? 0),
+			unitCost: product?.unitCost === null || product?.unitCost === undefined ? "" : String(product.unitCost),
+			lowStockThreshold: product?.lowStockThreshold === null || product?.lowStockThreshold === undefined ? "" : String(product.lowStockThreshold),
 		});
 	};
 
@@ -105,12 +118,22 @@ export default function InventoryCard() {
 			setProductError("Starting stock must be a non-negative whole number.");
 			return;
 		}
+		const unitCost = productDraft.unitCost.trim() === "" ? null : Number(productDraft.unitCost);
+		if (unitCost !== null && (!Number.isFinite(unitCost) || unitCost < 0)) {
+			setProductError("Unit cost must be a non-negative amount.");
+			return;
+		}
+		const lowStockThreshold = productDraft.lowStockThreshold.trim() === "" ? null : Number(productDraft.lowStockThreshold);
+		if (lowStockThreshold !== null && (!Number.isSafeInteger(lowStockThreshold) || lowStockThreshold < 1)) {
+			setProductError("Low-stock threshold must be a positive whole number, or leave it blank to use Settings.");
+			return;
+		}
 		try {
 			if (productFormMode === "add") {
-				addProduct({ name: productDraft.name, category: productDraft.category, stock });
+				addProduct({ name: productDraft.name, category: productDraft.category, stock, unitCost, lowStockThreshold });
 				notify(`${productDraft.name.trim()} added to inventory.`);
 			} else if (productFormMode === "edit" && editingProductName) {
-				updateProduct(editingProductName, { name: productDraft.name, category: productDraft.category });
+				updateProduct(editingProductName, { name: productDraft.name, category: productDraft.category, unitCost, lowStockThreshold });
 				if (editingProductName !== productDraft.name.trim()) {
 					renameRequestedProduct(editingProductName, productDraft.name.trim());
 				}
@@ -131,7 +154,7 @@ export default function InventoryCard() {
 		const hasOpenRequest = requests.some((request) => request.productName === product.name
 			&& ["Pending review", "Sourcing approved", "Approved"].includes(request.status));
 		if (hasOpenRequest) {
-			notify("This product has an order request awaiting review and cannot be removed yet.");
+			notify("This product has an open sourcing request and cannot be removed yet.");
 			return;
 		}
 		if (!window.confirm(`Remove ${product.name} from inventory? Historical usage and received orders will be kept.`)) return;
@@ -194,6 +217,51 @@ export default function InventoryCard() {
 		}
 	};
 
+	const exportInventoryHistory = () => {
+		if (!canManageInventory) {
+			notify("Only managers and admins can export inventory history.");
+			return;
+		}
+		const headers = ["Record type", "Date", "Product", "Category", "Available units", "Units on order", "Quantity", "Unit cost (USD)", "Total cost (USD)", "Status", "Supplier", "Recorded by"];
+		const rows: (string | number | null | undefined)[][] = [headers];
+		products.forEach((product) => {
+			const onOrder = orderSummaryByProduct.get(product.name)?.units ?? 0;
+			rows.push([
+				"Inventory", "", product.name, product.category, product.stock, onOrder, "",
+				product.unitCost, product.unitCost === null ? "" : product.stock * product.unitCost, product.status, "", "",
+			]);
+		});
+		orders.forEach((order) => {
+			const totalCost = order.unitCost === null || order.unitCost === undefined ? "" : order.quantity * order.unitCost;
+			rows.push([
+				"Order", order.orderedAt, order.productName, "", "", order.status === "Received" ? 0 : order.quantity,
+				order.quantity, order.unitCost, totalCost, order.status, order.supplier, "",
+			]);
+		});
+		usageRecords.forEach((record) => record.items.forEach((item: InventoryUsageItem) => {
+			const product = products.find((entry) => entry.name === item.productName);
+			const unitCost = item.unitCost === undefined ? product?.unitCost ?? null : item.unitCost;
+			rows.push([
+				"Usage", record.recordedAt, item.productName, product?.category ?? "", "", "",
+				item.quantity, unitCost, unitCost === null ? "" : item.quantity * unitCost, "", "", record.recordedBy,
+			]);
+		}));
+		const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+		try {
+			const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = `inventory-history-${new Date().toISOString().slice(0, 10)}.csv`;
+			link.click();
+			URL.revokeObjectURL(url);
+			notify("Inventory history exported.");
+		} catch (error) {
+			console.error("Could not export inventory history.", error);
+			notify("Could not export inventory history.");
+		}
+	};
+
 	const submitUsage = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		setUsageError("");
@@ -204,7 +272,7 @@ export default function InventoryCard() {
 			})), activeUser.name);
 			notify(`Recorded usage for ${usageItems.length} ${usageItems.length === 1 ? "item" : "items"}.`);
 			setUsageItems([{ productName: products.find((product) => product.stock > 0)?.name ?? "", quantity: "1" }]);
-			setUsageDialogOpen(false);
+			closeUsageDialog();
 		} catch (error) {
 			setUsageError(error instanceof Error ? error.message : "Could not record inventory usage.");
 		}
@@ -214,8 +282,7 @@ export default function InventoryCard() {
 		<>
 			<section className="panel products-panel">
 				<div className="products-heading">
-					<div><h2>Products</h2><p>Current Inventory</p></div>
-					<button className="text-button" onClick={() => { setActiveFilter("All items"); setQuery(""); notify("Showing all inventory"); }}>View all inventory <Icon name="chevron" size={15} /></button>
+					<div><h2>Inventory</h2></div>
 				</div>
 				<div className="table-tools">
 					<div className="filter-tabs">
@@ -229,9 +296,8 @@ export default function InventoryCard() {
 						<label className="search-box"><Icon name="search" size={16}/><input aria-label="Search inventory" placeholder="Search products..." value={query} onChange={(event) => setQuery(event.target.value)} /></label>
 						<button className="filter-button" onClick={() => notify("Filters are up to date")}><Icon name="filter" size={16}/> Filter</button>
 						{canManageInventory && <button className="usage-button" onClick={() => openProductForm("add")}><Icon name="plus" size={15}/> Add product</button>}
-						<button className="usage-button" disabled={!products.some((product) => product.stock > 0)} onClick={() => { setUsageError(""); setUsageDialogOpen(true); }}><Icon name="plus" size={15}/> Record usage</button>
-						<button className="usage-button" disabled={!products.length || !suppliers.length || !searchSites.length} onClick={openOrderRequest}><Icon name="plus" size={15}/> Request order</button>
-						<button className="export-button" onClick={() => notify("Your inventory export is being prepared")}><Icon name="download" size={16}/> Export</button>
+						<button className="usage-button" disabled={!products.some((product) => product.stock > 0)} onClick={() => { setUsageError(""); openUsageDialog(); }}><Icon name="plus" size={15}/> Record usage</button>
+						<button className="usage-button" disabled={!products.length || !suppliers.length} onClick={openOrderRequest}><Icon name="plus" size={15}/> Request order</button>
 					</div>
 				</div>
 				<div className="table-scroll">
@@ -273,17 +339,54 @@ export default function InventoryCard() {
 				</div>
 			</section>
 
-			<section className="panel usage-history-panel">
-				<div className="panel-heading"><div><h2>Recent inventory usage</h2><p>Recorded stock usage and who logged it</p></div><span className="usage-record-count">{usageRecords.length} {usageRecords.length === 1 ? "record" : "records"}</span></div>
-				{usageRecords.length === 0 ? <p className="usage-empty">No inventory usage recorded yet.</p> : <div className="usage-history-list">
-					{usageRecords.slice(0, 10).map((record) => (
-						<article className="usage-history-row" key={record.id}>
-							<div className="usage-history-meta"><strong>{record.recordedBy}</strong><span>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(record.recordedAt))}</span></div>
-							<div className="usage-history-items">{record.items.map((item) => <span key={item.productName}>{item.productName} <strong>-{item.quantity}</strong></span>)}</div>
-						</article>
-					))}
-				</div>}
-			</section>
+			{canManageInventory && <section className="panel inventory-history-panel" id="inventory-history">
+				<div className="panel-heading inventory-history-heading">
+					<div><h2>Inventory history</h2><p>Current stock, outstanding orders, costs, and recorded activity</p></div>
+					<button className="export-button" onClick={exportInventoryHistory}><Icon name="download" size={16}/> Export history</button>
+				</div>
+				<div className="inventory-history-section">
+					<h3>Products and available stock</h3>
+					<div className="table-scroll history-table-scroll"><table>
+						<thead><tr><th>PRODUCT</th><th>CATEGORY</th><th>AVAILABLE UNITS</th><th>UNITS ON ORDER</th><th>UNIT COST</th><th>STOCK VALUE</th></tr></thead>
+						<tbody>{products.map((product) => {
+							const unitsOnOrder = orderSummaryByProduct.get(product.name)?.units ?? 0;
+							return <tr key={product.name}>
+								<td><strong>{product.name}</strong></td><td>{product.category}</td>
+								<td>{product.stock.toLocaleString()}</td><td>{unitsOnOrder.toLocaleString()}</td>
+								<td>{formatCurrency(product.unitCost)}</td>
+								<td>{product.unitCost === null ? "Not set" : formatCurrency(product.stock * product.unitCost)}</td>
+							</tr>;
+						})}</tbody>
+					</table></div>
+				</div>
+				<div className="inventory-history-section">
+					<h3>Orders <span>{orders.length}</span></h3>
+					{orders.length === 0 ? <p className="usage-empty">No stock orders recorded yet.</p> : <div className="table-scroll history-table-scroll"><table>
+						<thead><tr><th>ORDERED</th><th>PRODUCT</th><th>SUPPLIER</th><th>QUANTITY</th><th>UNIT COST</th><th>ORDER COST</th><th>STATUS</th></tr></thead>
+						<tbody>{[...orders].reverse().map((order) => <tr key={order.id}>
+							<td>{new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(order.orderedAt))}</td>
+							<td><strong>{order.productName}</strong></td><td>{order.supplier}</td><td>{order.quantity.toLocaleString()}</td>
+							<td>{formatCurrency(order.unitCost)}</td><td>{order.unitCost == null ? "Not set" : formatCurrency(order.quantity * order.unitCost)}</td>
+							<td><span className={`order-status order-${order.status.toLowerCase()}`}>{order.status}</span></td>
+						</tr>)}</tbody>
+					</table></div>}
+				</div>
+				<div className="inventory-history-section">
+					<h3>Usage <span>{usageRecords.reduce((total, record) => total + record.items.length, 0)}</span></h3>
+					{usageRecords.length === 0 ? <p className="usage-empty">No inventory usage recorded yet.</p> : <div className="table-scroll history-table-scroll"><table>
+						<thead><tr><th>RECORDED</th><th>PRODUCT</th><th>QUANTITY USED</th><th>UNIT COST</th><th>USAGE COST</th><th>RECORDED BY</th></tr></thead>
+						<tbody>{usageRecords.flatMap((record) => record.items.map((item, index) => {
+							const currentProduct = products.find((product) => product.name === item.productName);
+							const unitCost = item.unitCost === undefined ? currentProduct?.unitCost ?? null : item.unitCost;
+							return <tr key={`${record.id}-${item.productName}-${index}`}>
+								<td>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(record.recordedAt))}</td>
+								<td><strong>{item.productName}</strong></td><td>{item.quantity.toLocaleString()}</td>
+								<td>{formatCurrency(unitCost)}</td><td>{unitCost === null ? "Not set" : formatCurrency(item.quantity * unitCost)}</td><td>{record.recordedBy}</td>
+							</tr>;
+						}) )}</tbody>
+					</table></div>}
+				</div>
+			</section>}
 
 			{usageDialogOpen && <div className="edit-units-overlay"><section className="edit-units-dialog usage-dialog" role="dialog" aria-modal="true" aria-labelledby="usage-dialog-title">
 				<h2 id="usage-dialog-title">Record inventory usage</h2>
@@ -302,13 +405,13 @@ export default function InventoryCard() {
 					})}</div>
 					<button className="usage-add-row" type="button" onClick={() => setUsageItems((current) => [...current, { productName: "", quantity: "1" }])}><Icon name="plus" size={14} /> Add another item</button>
 					{usageError && <p className="form-error" role="alert">{usageError}</p>}
-					<div className="edit-units-actions"><button type="button" className="cancel-edit" onClick={() => setUsageDialogOpen(false)}>Cancel</button><button type="submit" className="save-edit" disabled={!usageItems.length || !products.some((product) => product.stock > 0)}>Save usage</button></div>
+					<div className="edit-units-actions"><button type="button" className="cancel-edit" onClick={closeUsageDialog}>Cancel</button><button type="submit" className="save-edit" disabled={!usageItems.length || !products.some((product) => product.stock > 0)}>Save usage</button></div>
 				</form>
 			</section></div>}
 
 			{orderRequestOpen && <div className="edit-units-overlay"><section className="edit-units-dialog usage-dialog order-request-dialog" role="dialog" aria-modal="true" aria-labelledby="order-request-title">
 				<h2 id="order-request-title">Request inventory order</h2>
-				<p>Add one or more products. Each request will appear under its selected supplier for review.</p>
+				<p>Add one or more products. Web search is optional; requests appear under the selected supplier.</p>
 				<form onSubmit={submitOrderRequest}>
 					<div className="order-request-items">{orderRequestDrafts.map((draft, index) => <div className="order-request-item" key={index}>
 						<label htmlFor={`request-product-${index}`}>Product<select id={`request-product-${index}`} required value={draft.productName} onChange={(event) => setOrderRequestDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, productName: event.target.value } : item))}>
@@ -318,14 +421,15 @@ export default function InventoryCard() {
 						<label htmlFor={`request-supplier-${index}`}>Supplier<select id={`request-supplier-${index}`} required value={draft.supplierId} onChange={(event) => setOrderRequestDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, supplierId: event.target.value } : item))}>
 							{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
 						</select></label>
-						<label htmlFor={`request-search-site-${index}`}>Search site<select id={`request-search-site-${index}`} required value={draft.siteId} onChange={(event) => setOrderRequestDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, siteId: event.target.value } : item))}>
+						<label htmlFor={`request-search-site-${index}`}>Search site (optional)<select id={`request-search-site-${index}`} value={draft.siteId} onChange={(event) => setOrderRequestDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, siteId: event.target.value } : item))}>
+							<option value="">No web search</option>
 							{searchSites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
 						</select></label>
 						{orderRequestDrafts.length > 1 && <button className="usage-remove-row order-request-remove" type="button" aria-label={`Remove order item ${index + 1}`} onClick={() => setOrderRequestDrafts((current) => current.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>}
 					</div>)}</div>
 					<button className="usage-add-row" type="button" onClick={() => setOrderRequestDrafts((current) => [...current, createOrderRequestDraft(products, suppliers[0]?.id ?? "", searchSites[0]?.id ?? "")])}><Icon name="plus" size={14} /> Add another product</button>
 					{orderRequestError && <p className="form-error" role="alert">{orderRequestError}</p>}
-					<div className="edit-units-actions"><button type="button" className="cancel-edit" onClick={() => setOrderRequestOpen(false)}>Cancel</button><button type="submit" className="save-edit" disabled={!orderRequestDrafts.length || !products.length || !suppliers.length || !searchSites.length}>Submit {orderRequestDrafts.length || ""} {orderRequestDrafts.length === 1 ? "request" : "requests"}</button></div>
+					<div className="edit-units-actions"><button type="button" className="cancel-edit" onClick={() => setOrderRequestOpen(false)}>Cancel</button><button type="submit" className="save-edit" disabled={!orderRequestDrafts.length || !products.length || !suppliers.length}>Submit {orderRequestDrafts.length || ""} {orderRequestDrafts.length === 1 ? "request" : "requests"}</button></div>
 				</form>
 			</section></div>}
 
@@ -342,12 +446,17 @@ export default function InventoryCard() {
 						<input id="product-stock" type="number" min="0" max={Number.MAX_SAFE_INTEGER} step="1" required value={productDraft.stock} onChange={(event) => setProductDraft((current) => ({ ...current, stock: event.target.value }))} />
 						<small>Status is assigned automatically from the starting stock amount.</small>
 					</>}
+					<label htmlFor="product-low-stock-threshold">Low-stock threshold (optional)</label>
+					<input id="product-low-stock-threshold" type="number" min="1" max={Number.MAX_SAFE_INTEGER} step="1" value={productDraft.lowStockThreshold} onChange={(event) => setProductDraft((current) => ({ ...current, lowStockThreshold: event.target.value }))} placeholder={`Use Settings default (${inventorySettings.defaultLowStockThreshold})`} />
+					<small>Leave blank to use the default in Settings. Thresholds are ignored while low-stock tracking is disabled.</small>
+					<label htmlFor="product-unit-cost">Unit cost (USD, optional)</label>
+					<input id="product-unit-cost" type="number" min="0" max={Number.MAX_SAFE_INTEGER} step="0.01" value={productDraft.unitCost} onChange={(event) => setProductDraft((current) => ({ ...current, unitCost: event.target.value }))} />
 					{productError && <p className="form-error" role="alert">{productError}</p>}
 					<div className="edit-units-actions"><button type="button" className="cancel-edit" onClick={() => setProductFormMode(null)}>Cancel</button><button type="submit" className="save-edit">{productFormMode === "add" ? "Add product" : "Save product"}</button></div>
 				</form>
 			</section></div>}
 
-			{dialogProduct && dialogMode && <div className="edit-units-overlay"><section className="edit-units-dialog" role="dialog" aria-modal="true" aria-labelledby="inventory-dialog-title"><h2 id="inventory-dialog-title">{dialogMode === "edit" ? "Edit unit amount" : "Order more stock"}</h2><p>{dialogProduct.name}</p><form onSubmit={saveDialog}><label htmlFor="unit-amount">{dialogMode === "edit" ? "Units in stock" : "Amount to order"}</label><input id="unit-amount" type="number" min={dialogMode === "edit" ? 0 : 1} max={Number.MAX_SAFE_INTEGER} step="1" required autoFocus value={draftUnits} onChange={(event) => setDraftUnits(event.target.value)} />{dialogMode === "edit" ? <small>Status updates automatically: 0 is Out of stock, up to {LOW_STOCK_THRESHOLD} is Low stock.</small> : <><label htmlFor="stock-supplier">Supplier</label><select id="stock-supplier" required value={selectedSupplier} onChange={(event) => setSelectedSupplier(event.target.value)}><option value="" disabled>Select a supplier</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.name}>{supplier.name}</option>)}</select><small>Ordered units will be added to available stock when received.</small></>}<div className="edit-units-actions"><button type="button" className="cancel-edit" onClick={() => { setDialogProduct(null); setDialogMode(null); }}>Cancel</button><button type="submit" className="save-edit">{dialogMode === "edit" ? "Save amount" : "Place order"}</button></div></form></section></div>}
+			{dialogProduct && dialogMode && <div className="edit-units-overlay"><section className="edit-units-dialog" role="dialog" aria-modal="true" aria-labelledby="inventory-dialog-title"><h2 id="inventory-dialog-title">{dialogMode === "edit" ? "Edit unit amount" : "Order more stock"}</h2><p>{dialogProduct.name}</p><form onSubmit={saveDialog}><label htmlFor="unit-amount">{dialogMode === "edit" ? "Units in stock" : "Amount to order"}</label><input id="unit-amount" type="number" min={dialogMode === "edit" ? 0 : 1} max={Number.MAX_SAFE_INTEGER} step="1" required autoFocus value={draftUnits} onChange={(event) => setDraftUnits(event.target.value)} />{dialogMode === "edit" ? <small>{inventorySettings.lowStockThresholdEnabled ? `Status updates automatically: 0 is Out of stock, up to ${dialogProduct.lowStockThreshold ?? inventorySettings.defaultLowStockThreshold} is Low stock.` : "Low-stock tracking is disabled in Settings; zero units is Out of stock."}</small> : <><label htmlFor="stock-supplier">Supplier</label><select id="stock-supplier" required value={selectedSupplier} onChange={(event) => setSelectedSupplier(event.target.value)}><option value="" disabled>Select a supplier</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.name}>{supplier.name}</option>)}</select><small>Ordered units will be added to available stock when received.</small></>}<div className="edit-units-actions"><button type="button" className="cancel-edit" onClick={() => { setDialogProduct(null); setDialogMode(null); }}>Cancel</button><button type="submit" className="save-edit">{dialogMode === "edit" ? "Save amount" : "Place order"}</button></div></form></section></div>}
 		</>
 	);
 }

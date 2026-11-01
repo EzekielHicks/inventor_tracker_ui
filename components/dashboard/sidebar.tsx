@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useUsers } from "@/components/providers/user-provider";
 import { useInventory } from "@/components/providers/inventory-provider";
 
-export type SidebarNav = "Overview" | "Inventory" | "Analytics" | "Suppliers";
+export type SidebarNav = "Overview" | "Inventory" | "Analytics" | "Suppliers" | "Settings";
 
 type SidebarProps = {
 	activeNav: SidebarNav;
@@ -23,8 +23,9 @@ const navigationItems: { label: SidebarNav; icon: IconName; href: string }[] = [
 ];
 
 export default function Sidebar({ activeNav, collapsed, onToggleCollapsed, onSwitchUser, notify }: SidebarProps) {
-	const { activeUser } = useUsers();
+	const { activeUser, canManageSuppliers, canManageInventory } = useUsers();
 	const { stockOnHand } = useInventory();
+	const visibleNavigationItems = navigationItems.filter(({ label }) => label !== "Suppliers" || canManageSuppliers);
 
 	return (
 		<aside className="sidebar">
@@ -35,7 +36,7 @@ export default function Sidebar({ activeNav, collapsed, onToggleCollapsed, onSwi
 			<div className="workspace-label sidebar-label">WORKSPACE</div>
 
 			<nav className="nav-list" aria-label="Main navigation">
-				{navigationItems.map(({ label, icon, href }) => (
+				{visibleNavigationItems.map(({ label, icon, href }) => (
 					<Link key={label} href={href} title={collapsed ? label : undefined} aria-current={activeNav === label ? "page" : undefined} className={`nav-item ${activeNav === label ? "nav-active" : ""}`}>
 						<Icon name={icon} />
 						<span className="sidebar-label">{label}</span>
@@ -46,7 +47,7 @@ export default function Sidebar({ activeNav, collapsed, onToggleCollapsed, onSwi
 
 			<div className="sidebar-bottom">
 				<div className="help-card"><div className="help-icon">✦</div><strong className="sidebar-label">Need a hand?</strong><p className="sidebar-label">Visit our help center for tips and answers.</p><button onClick={() => notify("Help center is coming soon")}><span className="sidebar-label">Get help</span><span>↗</span></button></div>
-				<button className="nav-item settings-link" title={collapsed ? "Settings" : undefined} onClick={() => notify("Settings are coming soon")}><Icon name="settings" /><span className="sidebar-label">Settings</span></button>
+				{canManageInventory && <Link className={`nav-item settings-link ${activeNav === "Settings" ? "nav-active" : ""}`} aria-current={activeNav === "Settings" ? "page" : undefined} href="/settings" title={collapsed ? "Settings" : undefined}><Icon name="settings" /><span className="sidebar-label">Settings</span></Link>}
 				<button className="profile" onClick={onSwitchUser} title="Switch user">
 					<div className={`avatar ${activeUser.avatarColor}`}>{activeUser.initials}</div>
 					<div className="profile-copy sidebar-label"><strong>{activeUser.name}</strong><span>{activeUser.role}</span></div>

@@ -12,15 +12,17 @@ import Icon from "@/components/ui/icon";
 import { useNotify } from "@/components/layout/workspace-shell";
 
 export default function OverviewApp() {
-	const { activeUser } = useUsers();
-	const { products, stockOnHand, lowStockCount, outstandingOrderUnits } = useInventory();
+	const { activeUser, canManageInventory } = useUsers();
+	const { products, stockOnHand, lowStockCount, outstandingOrderUnits, openUsageDialog } = useInventory();
 	const notify = useNotify();
 	return (
 		<PageTemplate
 			eyebrow="WORKSPACE OVERVIEW"
 			title={`Good morning, ${activeUser.name.split(" ")[0]}`}
 			description="Here’s what’s happening with your inventory today."
-			action={<Link className="primary-button" href="/inventory">Manage inventory <Icon name="chevron" size={15} /></Link>}
+			action={canManageInventory
+				? <Link className="primary-button" href="/inventory">Edit products <Icon name="chevron" size={15} /></Link>
+				: <button className="primary-button" disabled={!products.some((product) => product.stock > 0)} onClick={openUsageDialog}>Record usage <Icon name="plus" size={15} /></button>}
 		>
 			<div className="stats-grid">
 				<StatCard title="Items on Order" value={outstandingOrderUnits.toLocaleString()} tone="purple" icon={<Icon name="box" size={17} />} detail="units currently on order" />

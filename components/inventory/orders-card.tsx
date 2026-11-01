@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useInventory } from "@/components/providers/inventory-provider";
+import { useUsers } from "@/components/providers/user-provider";
 import { useNotify } from "@/components/layout/workspace-shell";
 
 type OrderFilter = "All" | "Outstanding" | "Received";
@@ -14,6 +15,7 @@ function formatDate(value: string) {
 
 export default function OrdersCard() {
 	const { orders, receiveOrder, updateOrderStatus } = useInventory();
+	const { canManageInventory } = useUsers();
 	const notify = useNotify();
 	const [filter, setFilter] = useState<OrderFilter>("All");
 	const visibleOrders = orders.filter((order) => {
@@ -39,12 +41,12 @@ export default function OrdersCard() {
 			) : (
 				<div className="orders-list">
 					{visibleOrders.map((order) => (
-						<article className="order-row" key={order.id}>
-							<div className="order-product"><strong>{order.productName}</strong><span>{order.supplier}</span></div>
+						<article className={`order-row${canManageInventory && order.status !== "Received" ? "" : " order-row-readonly"}`} key={order.id}>
+							<div className="order-product"><strong>{order.productName}</strong>{canManageInventory && <span>{order.supplier}</span>}</div>
 							<div className="order-quantity"><strong>{order.quantity.toLocaleString()}</strong><span>units</span></div>
 							<div className="order-dates"><span>Ordered {formatDate(order.orderedAt)}</span>{order.receivedAt && <span>Received {formatDate(order.receivedAt)}</span>}</div>
-							<span className={`order-status ${order.status === "Received" ? "order-received" : "order-pending"}`}>{order.status}</span>
-							{order.status !== "Received" && <div className="order-actions">{order.status !== "Shipped" && <button className="update-order-button" onClick={() => { updateOrderStatus(order.id, "Shipped"); notify("Order marked as shipped."); }}>Mark shipped</button>}{order.status !== "Backorder" && <button className="update-order-button" onClick={() => { updateOrderStatus(order.id, "Backorder"); notify("Order marked as backorder."); }}>Backorder</button>}<button className="receive-order-button" onClick={() => { if (receiveOrder(order.id)) notify(`${order.quantity} ${order.quantity === 1 ? "unit" : "units"} of ${order.productName} marked as received.`); else notify(`Could not receive the order for ${order.productName}.`); }}>Mark received</button></div>}
+							<span className={`order-status order-${order.status.toLowerCase()}`}>{order.status}</span>
+							{canManageInventory && order.status !== "Received" && <div className="order-actions">{order.status !== "Shipped" && <button className="update-order-button" onClick={() => { updateOrderStatus(order.id, "Shipped"); notify("Order marked as shipped."); }}>Mark shipped</button>}{order.status !== "Backorder" && <button className="update-order-button" onClick={() => { updateOrderStatus(order.id, "Backorder"); notify("Order marked as backorder."); }}>Backorder</button>}<button className="receive-order-button" onClick={() => { if (receiveOrder(order.id)) notify(`${order.quantity} ${order.quantity === 1 ? "unit" : "units"} of ${order.productName} marked as received.`); else notify(`Could not receive the order for ${order.productName}.`); }}>Mark received</button></div>}
 						</article>
 					))}
 				</div>

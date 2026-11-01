@@ -21,6 +21,7 @@ const routeTitles: Record<string, SidebarNav> = {
 	"/inventory": "Inventory",
 	"/analytics": "Analytics",
 	"/suppliers": "Suppliers",
+	"/settings": "Settings",
 };
 
 function getCollapsedSnapshot() {
@@ -75,8 +76,8 @@ export default function WorkspaceShell({ children }: { children: ReactNode }) {
 	const collapsed = useSyncExternalStore(subscribeToCollapsedPreference, getCollapsedSnapshot, () => false);
 	const [notice, setNotice] = useState("");
 	const activeNav = routeTitles[pathname] ?? "Overview";
-	const pendingReviews = canReviewOrders ? requests.filter((request) => request.status === "Pending review" || request.status === "Sourcing approved").length : 0;
-	const notificationLabel = pendingReviews === 1 ? "1 order request needs review" : `${pendingReviews} order requests need review`;
+	const openOrderRequests = canReviewOrders ? requests.filter((request) => ["Pending review", "Sourcing approved", "Approved"].includes(request.status)).length : 0;
+	const notificationLabel = openOrderRequests === 1 ? "1 open order request" : `${openOrderRequests} open order requests`;
 
 	useEffect(() => {
 		if (!notice) return;
@@ -101,7 +102,7 @@ export default function WorkspaceShell({ children }: { children: ReactNode }) {
 						<div className="breadcrumb">Workspace <Icon name="chevron" size={14} /><strong>{activeNav}</strong></div>
 						<div className="top-actions">
 							<div className="store-select"><span className="store-dot" /> Main Store <span className="down-caret">⌄</span></div>
-							<button className="icon-button notification-button" aria-label={pendingReviews ? notificationLabel : "Notifications"} onClick={() => pendingReviews ? router.push("/suppliers") : notify("You’re all caught up!")}><Icon name="bell" /><i />{pendingReviews > 0 && <span className="notification-count">{pendingReviews}</span>}</button>
+							<button className="icon-button notification-button" aria-label={openOrderRequests ? notificationLabel : "Notifications"} onClick={() => openOrderRequests ? router.push("/suppliers") : notify("You’re all caught up!")}><Icon name="bell" /><i />{openOrderRequests > 0 && <span className="notification-count">{openOrderRequests}</span>}</button>
 							<button className={`top-avatar ${activeUser.avatarColor}`} aria-label={`Switch user, currently ${activeUser.name}`} onClick={() => router.push("/")}>{activeUser.initials}</button>
 						</div>
 					</header>

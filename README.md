@@ -30,17 +30,18 @@ The app does not currently require environment variables. Copy `.env.example` to
 - `/overview` is the main dashboard.
 - `/inventory` manages products and stock orders.
 - `/analytics` summarizes stock levels and order statuses.
-- `/suppliers` summarizes orders by supplier.
+- `/suppliers` manages suppliers and provides sourcing request history.
+- `/settings` configures low-stock thresholds and optional web sourcing templates.
 
 The sidebar collapse preference is stored in the browser. Inventory and order changes are shared while navigating workspace pages, but are currently reset when the page is refreshed.
 
-The Inventory page lets managers and admins add, edit, and remove products. Product usage totals, record counts, and most recent use are summarized in the inventory table; renaming a product carries its usage and order history forward. Products with pending sourcing requests or outstanding orders cannot be removed. Team members can view stock, record usage, and submit order requests but cannot change product records or stock directly. Inventory changes and usage history are shared across workspace pages but currently reset on refresh.
+The Inventory page lets managers and admins add, edit, and remove products. Managers and admins can view Inventory history, including available stock, units on order, optional unit cost and stock value, orders, and recorded usage, and export the history as CSV. Product usage totals, record counts, and most recent use are also summarized in the inventory table; renaming a product carries its usage and order history forward. Products with open sourcing requests or outstanding orders cannot be removed. Team members can view stock, record usage, and submit order requests but cannot change product records or stock directly. Managers and admins can set an optional default low-stock threshold in Settings and override it per product; settings are stored in browser storage.
 
 To scaffold another workspace page, create a route under `app/(workspace)/<route>/` and render its page component from `components/pages/<route>/app.tsx`. Reuse `PageTemplate` for the page heading and shared content layout.
 
-## Supplier sourcing and approvals
+## Supplier sourcing and orders
 
-The Suppliers page stores supplier contacts, HTTPS search templates, API endpoint placeholders, and sourcing requests in browser storage. Each supplier card can submit item and quantity requests, then managers separately approve sourcing and the order. The Inventory page supports multiple product requests in one submission; each requested item appears under its selected supplier for review. The submitted quantity becomes the tracked stock-order quantity when a manager records the order as placed. Checkout remains a manual action. API templates do not make network calls or store credentials. These roles are local demo settings—not secure authorization. Connect authenticated accounts and trusted server-side integrations before using this for real inventory or purchasing.
+The Suppliers page is available only to managers and admins. It stores supplier contacts, optional HTTPS search templates, optional API endpoint placeholders, and sourcing requests in browser storage. Website and API connections are optional. Requests can be created without a configured search template; managers can open a configured product search when available and record an order after completing checkout. The Inventory page supports multiple product requests in one submission, with each item routed to its selected supplier. Recording an order creates the corresponding stock-order quantity. Checkout remains a manual action; there is no separate approval stage. API templates do not make network calls or store credentials. These roles are local demo settings—not secure authorization. Connect authenticated accounts and trusted server-side integrations before using this for real inventory or purchasing.
 
 ## Learn More
 

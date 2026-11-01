@@ -2,17 +2,15 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 import { useInventory } from "@/components/providers/inventory-provider";
-import { buildSiteUrl, useSuppliers, type SourcingSite, type Supplier } from "@/components/providers/supplier-provider";
+import { buildSiteUrl, useSuppliers, type Supplier } from "@/components/providers/supplier-provider";
 import { useUsers } from "@/components/providers/user-provider";
 import { useNotify } from "@/components/layout/workspace-shell";
 import PageTemplate from "@/components/templates/page-template";
 import Icon from "@/components/ui/icon";
 
 type SupplierDraft = Omit<Supplier, "id">;
-type SiteDraft = Omit<SourcingSite, "id">;
 
 const emptySupplier: SupplierDraft = { name: "", email: "", phone: "", website: "" };
-const emptySite: SiteDraft = { name: "", type: "search", url: "" };
 
 function isValidContactUrl(value: string) {
 	if (!value) return true;
@@ -25,27 +23,27 @@ function isValidContactUrl(value: string) {
 }
 
 function RequestStatus({ status }: { status: string }) {
-	return <span className={`sourcing-status sourcing-${status.toLowerCase().replaceAll(" ", "-")}`}>{status}</span>;
+	const displayStatus = ["Pending review", "Sourcing approved", "Approved"].includes(status) ? "Open request" : status;
+	return <span className={`sourcing-status sourcing-${displayStatus.toLowerCase().replaceAll(" ", "-")}`}>{displayStatus}</span>;
 }
 
 export default function SuppliersApp() {
 	const { orders, products, orderStock, renameOrderSupplier } = useInventory();
-	const { suppliers, sites, requests, addSupplier, updateSupplier, deleteSupplier, addSite, updateSite, deleteSite, requestSourcing, reviewRequest, markRequestSubmitted } = useSuppliers();
+	const { suppliers, sites, requests, addSupplier, updateSupplier, deleteSupplier, requestSourcing, markRequestSubmitted } = useSuppliers();
 	const { activeUser, canManageSuppliers, canReviewOrders } = useUsers();
 	const notify = useNotify();
 	const [supplierDraft, setSupplierDraft] = useState<SupplierDraft>(emptySupplier);
 	const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
-	const [siteDraft, setSiteDraft] = useState<SiteDraft>(emptySite);
-	const [editingSiteId, setEditingSiteId] = useState<string | null>(null);
 	const [supplierError, setSupplierError] = useState("");
-	const [siteError, setSiteError] = useState("");
 	const [requestErrors, setRequestErrors] = useState<Record<string, string>>({});
 	const [deletingSupplierId, setDeletingSupplierId] = useState<string | null>(null);
 	const [orderDrafts, setOrderDrafts] = useState<Record<string, { productName: string; quantity: string; siteId: string }>>({});
+	const [newRequestOpen, setNewRequestOpen] = useState(false);
+	const [newRequestDraft, setNewRequestDraft] = useState({ productName: "", quantity: "1", supplierId: "", siteId: "" });
+	const [newRequestError, setNewRequestError] = useState("");
 
-	const pendingRequests = useMemo(() => requests.filter((request) => request.status === "Pending review" || request.status === "Sourcing approved"), [requests]);
+	const openRequests = useMemo(() => requests.filter((request) => ["Pending review", "Sourcing approved", "Approved"].includes(request.status)), [requests]);
 	const visibleRequests = canReviewOrders ? requests : requests.filter((request) => request.requesterId === activeUser.id);
-	const legacyRequests = visibleRequests.filter((request) => !request.supplierId);
 	const searchSites = sites.filter((site) => site.type === "search");
 	const submitSupplier = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
@@ -65,19 +63,6 @@ export default function SuppliersApp() {
 			notify(editingSupplierId ? "Supplier updated." : "Supplier added.");
 		} catch (error) {
 			setSupplierError(error instanceof Error ? error.message : "Could not save supplier.");
-		}
-	};
-	const submitSite = (event: FormEvent<HTMLFormElement>) => {
-		event.preventDefault();
-		setSiteError("");
-		try {
-			if (editingSiteId) updateSite(editingSiteId, siteDraft);
-			else addSite(siteDraft);
-			setSiteDraft(emptySite);
-			setEditingSiteId(null);
-			notify(editingSiteId ? "Sourcing site updated." : "Sourcing site added.");
-		} catch (error) {
-			setSiteError(error instanceof Error ? error.message : "Could not save sourcing site.");
 		}
 	};
 	const submitRequest = (event: FormEvent<HTMLFormElement>, supplier: Supplier) => {
@@ -103,47 +88,86 @@ export default function SuppliersApp() {
 				requesterName: activeUser.name,
 			});
 			setOrderDrafts((current) => ({ ...current, [supplier.id]: { ...draft, quantity: "1" } }));
-			notify(`Order request for ${draft.quantity} ${Number(draft.quantity) === 1 ? "unit" : "units"} of ${selectedProduct.name} sent to managers.`);
+			notify(`Sourcing request for ${draft.quantity} ${Number(draft.quantity) === 1 ? "unit" : "units"} of ${selectedProduct.name} added.`);
 		} catch (error) {
 			setRequestErrors((current) => ({ ...current, [supplier.id]: error instanceof Error ? error.message : "Could not send request." }));
 		}
 	};
-	const approveRequest = (id: string, status: "Sourcing approved" | "Approved" | "Rejected") => {
+	const openNewRequest = () => {
+		setNewRequestDraft({
+			productName: products[0]?.name ?? "",
+			quantity: "1",
+			supplierId: suppliers[0]?.id ?? "",
+			siteId: searchSites[0]?.id ?? "",
+		});
+		setNewRequestError("");
+		setNewRequestOpen(true);
+	};
+	const submitNewRequest = (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		setNewRequestError("");
+		const product = products.find((item) => item.name === newRequestDraft.productName);
+		if (!product) {
+			setNewRequestError("Choose a product from the current inventory.");
+			return;
+		}
 		try {
-			reviewRequest(id, status, activeUser.name);
-			notify(status === "Sourcing approved" ? "Sourcing review approved. Order approval is now required." : status === "Approved" ? "Order approved. A manager can prepare it for submission." : "Request declined.");
+			requestSourcing({
+				productName: product.name,
+				quantity: Number(newRequestDraft.quantity),
+				supplierId: newRequestDraft.supplierId,
+				siteId: newRequestDraft.siteId,
+				requesterId: activeUser.id,
+				requesterName: activeUser.name,
+			});
+			const supplier = suppliers.find((item) => item.id === newRequestDraft.supplierId);
+			notify(`Order request for ${newRequestDraft.quantity} ${Number(newRequestDraft.quantity) === 1 ? "unit" : "units"} of ${product.name} added${supplier ? ` to ${supplier.name}` : ""}.`);
+			setNewRequestOpen(false);
 		} catch (error) {
-			notify(error instanceof Error ? error.message : "Could not update the request.");
+			setNewRequestError(error instanceof Error ? error.message : "Could not create order request.");
 		}
 	};
-	const submitApprovedOrder = (requestId: string) => {
-		const request = requests.find((item) => item.id === requestId && item.status === "Approved");
+	const recordOrderPlaced = (requestId: string) => {
+		const request = requests.find((item) => item.id === requestId && ["Pending review", "Sourcing approved", "Approved"].includes(item.status));
 		const supplier = request?.supplierId ? suppliers.find((item) => item.id === request.supplierId) : undefined;
 		if (!request || !supplier) {
-			notify("The approved supplier order could not be found.");
+			notify("The open supplier order request could not be found.");
 			return;
 		}
 		try {
 			markRequestSubmitted(request.id);
 			orderStock(request.productName, request.quantity, supplier.name);
-			notify(`Submitted order for ${request.quantity} ${request.quantity === 1 ? "unit" : "units"} of ${request.productName} to ${supplier.name}.`);
+			notify(`Recorded order for ${request.quantity} ${request.quantity === 1 ? "unit" : "units"} of ${request.productName} from ${supplier.name}.`);
 		} catch (error) {
-			notify(error instanceof Error ? error.message : "Could not submit the approved order.");
+			notify(error instanceof Error ? error.message : "Could not record the order.");
 		}
 	};
 	const siteForRequest = (requestSiteId: string) => sites.find((site) => site.id === requestSiteId);
+
+	if (!canManageSuppliers) {
+		return (
+			<PageTemplate
+				eyebrow="WORKSPACE / SUPPLIERS"
+				title="Supplier access restricted"
+				description="Supplier management and sourcing history are available to managers and admins."
+			>
+				<section className="panel supplier-access-restricted"><strong>Use Inventory to submit an order request.</strong><p>Managers and admins can manage supplier details and view sourcing history here.</p></section>
+			</PageTemplate>
+		);
+	}
 
 	return (
 		<PageTemplate
 			eyebrow="WORKSPACE / SUPPLIERS"
 			title="Suppliers"
-			description="Manage supplier contacts, prepare sourcing requests, and review purchases before checkout."
+			description="Manage supplier contacts, search requested products, and record orders placed."
 			action={canManageSuppliers ? <span className="manager-role-label">Manager tools enabled</span> : undefined}
 		>
-			{canReviewOrders && <section className={`panel approval-notice${pendingRequests.length ? " approval-notice-pending" : ""}`} aria-live="polite">
+			{canReviewOrders && <section className={`panel approval-notice${openRequests.length ? " approval-notice-pending" : ""}`} aria-live="polite">
 				<span className="approval-notice-icon"><Icon name="bell" size={18} /></span>
-				<div><strong>{pendingRequests.length === 1 ? "1 order request needs review" : pendingRequests.length ? `${pendingRequests.length} order requests need review` : "No order requests need review"}</strong><p>Only managers can approve or decline sourcing requests.</p></div>
-				{pendingRequests.length > 0 && <span className="approval-count">{pendingRequests.length}</span>}
+				<div><strong>{openRequests.length === 1 ? "1 open order request" : openRequests.length ? `${openRequests.length} open order requests` : "No open order requests"}</strong><p>Search requested products, then record the order after checkout.</p></div>
+				{openRequests.length > 0 && <span className="approval-count">{openRequests.length}</span>}
+				<button className="primary-button approval-new-request" type="button" disabled={!products.length || !suppliers.length} onClick={openNewRequest}><Icon name="plus" size={14} /> New order request</button>
 			</section>}
 
 			<section className="panel supplier-management">
@@ -162,7 +186,6 @@ export default function SuppliersApp() {
 				<div className="supplier-grid">
 					{suppliers.map((supplier) => {
 						const supplierOrders = orders.filter((order) => order.supplier === supplier.name);
-						const supplierRequests = visibleRequests.filter((request) => request.supplierId === supplier.id);
 						const outstandingUnits = supplierOrders.filter((order) => order.status !== "Received").reduce((total, order) => total + order.quantity, 0);
 						const receivedUnits = supplierOrders.filter((order) => order.status === "Received").reduce((total, order) => total + order.quantity, 0);
 						const hasOrders = supplierOrders.length > 0;
@@ -191,31 +214,15 @@ export default function SuppliersApp() {
 									{supplierOrders.slice(-3).reverse().map((order) => <div className="supplier-order-history-row" key={order.id}><span>{order.productName} · {order.quantity.toLocaleString()} units</span><RequestStatus status={order.status} /></div>)}
 								</div>}
 								<div className="supplier-workflow">
-									<div className="supplier-workflow-heading"><strong>Sourcing &amp; order review</strong><span>Requested units become the order quantity.</span></div>
+									<div className="supplier-workflow-heading"><strong>Sourcing requests</strong><span>Search products and record orders once placed.</span></div>
 									<form className="supplier-order-request-form" onSubmit={(event) => submitRequest(event, supplier)}>
 										<label>Item<select required value={draft.productName} onChange={(event) => setOrderDrafts((current) => ({ ...current, [supplier.id]: { ...draft, productName: event.target.value } }))}>{products.map((product) => <option key={product.name} value={product.name}>{product.name}</option>)}</select></label>
 										<label>Order quantity<input type="number" min="1" step="1" required value={draft.quantity} onChange={(event) => setOrderDrafts((current) => ({ ...current, [supplier.id]: { ...draft, quantity: event.target.value } }))} /></label>
-										<label>Search site<select required value={draft.siteId} onChange={(event) => setOrderDrafts((current) => ({ ...current, [supplier.id]: { ...draft, siteId: event.target.value } }))}>{searchSites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
-										<button className="primary-button" type="submit" disabled={!products.length || !searchSites.length}>Submit request</button>
+										<label>Search site (optional)<select value={draft.siteId} onChange={(event) => setOrderDrafts((current) => ({ ...current, [supplier.id]: { ...draft, siteId: event.target.value } }))}><option value="">No web search</option>{searchSites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
+										<button className="primary-button" type="submit" disabled={!products.length}>Submit request</button>
 									</form>
 									{requestErrors[supplier.id] && <p className="form-error" role="alert">{requestErrors[supplier.id]}</p>}
-									<div className="supplier-card-requests">
-										{supplierRequests.length === 0 ? <p className="supplier-no-requests">No sourcing or order reviews yet.</p> : supplierRequests.map((request) => {
-											const site = siteForRequest(request.siteId);
-											let searchUrl = "";
-											if (site?.type === "search") {
-												try { searchUrl = buildSiteUrl(site, request.productName); } catch { searchUrl = ""; }
-											}
-											return <article className="supplier-request-card" key={request.id}>
-												<div className="supplier-request-summary"><strong>{request.productName} · {request.quantity.toLocaleString()} {request.quantity === 1 ? "unit" : "units"}</strong><RequestStatus status={request.status} /></div>
-												<div className="supplier-request-meta">Requested by {request.requesterName} · {request.siteName} · {new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(request.createdAt))}</div>
-												{request.reviewedBy && <small className="supplier-request-reviewer">Reviewed by {request.reviewedBy}</small>}
-												{canReviewOrders && request.status === "Pending review" && <div className="supplier-request-actions"><button className="secondary-button" onClick={() => approveRequest(request.id, "Rejected")}>Decline sourcing</button><button className="primary-button" onClick={() => approveRequest(request.id, "Sourcing approved")}>Approve sourcing</button></div>}
-												{canReviewOrders && request.status === "Sourcing approved" && <div className="supplier-request-actions"><button className="secondary-button" onClick={() => approveRequest(request.id, "Rejected")}>Decline order</button><button className="primary-button" onClick={() => approveRequest(request.id, "Approved")}>Approve order</button></div>}
-												{canReviewOrders && request.status === "Approved" && <div className="supplier-request-actions">{searchUrl ? <a className="search-site-link" href={searchUrl} target="_blank" rel="noreferrer">Open {request.siteName} search</a> : <span className="form-error">Search template unavailable.</span>}<button className="primary-button" onClick={() => submitApprovedOrder(request.id)}>Record order placed</button></div>}
-											</article>;
-										})}
-									</div>
+									<p className="supplier-no-requests">Requests and sourcing history appear below.</p>
 								</div>
 								{canManageSuppliers && <div className="supplier-card-actions">
 									<button className="text-button" onClick={() => { setEditingSupplierId(supplier.id); setSupplierDraft({ name: supplier.name, email: supplier.email, phone: supplier.phone, website: supplier.website }); setSupplierError(""); }}>Edit</button>
@@ -227,37 +234,58 @@ export default function SuppliersApp() {
 				</div>
 			</section>
 
-			{legacyRequests.length > 0 && <section className="panel sourcing-inbox-panel">
-				<div className="panel-heading"><div><h2>Unassigned legacy requests</h2><p>Older requests are not linked to a supplier card.</p></div></div>
-				<div className="sourcing-request-list">
-					{legacyRequests.map((request) => {
-						const site = siteForRequest(request.siteId);
-						let searchUrl = "";
-						if (site?.type === "search") {
-							try { searchUrl = buildSiteUrl(site, request.productName); } catch { searchUrl = ""; }
-						}
-						return <article className="sourcing-request-row" key={request.id}>
-							<div className="sourcing-request-details"><strong>{request.productName} <span>× {request.quantity}</span></strong><span>Requested by {request.requesterName} · {request.siteName} · {new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(request.createdAt))}</span>{request.reviewedBy && <small>Reviewed by {request.reviewedBy}</small>}</div>
-							<RequestStatus status={request.status} />
-							{canReviewOrders && request.status === "Pending review" && <div className="sourcing-review-actions"><button className="secondary-button" onClick={() => approveRequest(request.id, "Rejected")}>Decline</button><button className="primary-button" onClick={() => approveRequest(request.id, "Approved")}>Approve search</button></div>}
-							{canReviewOrders && request.status === "Approved" && <div className="sourcing-review-actions">{searchUrl ? <a className="search-site-link" href={searchUrl} target="_blank" rel="noreferrer">Open {request.siteName} search</a> : <span className="form-error">Search template unavailable.</span>}<button className="secondary-button" onClick={() => { try { markRequestSubmitted(request.id); notify("Request marked submitted after supplier checkout."); } catch (error) { notify(error instanceof Error ? error.message : "Could not update request."); } }}>Mark submitted</button></div>}
-						</article>;
-					})}
-				</div>
-			</section>}
+			<section className="panel sourcing-history-panel">
+				<div className="panel-heading"><div><h2>Sourcing requests and history</h2><p>Search open requests and track submitted sourcing activity.</p></div></div>
+				{visibleRequests.length === 0 ? <p className="sourcing-empty">No sourcing requests yet.</p> : (
+					<div className="sourcing-request-list">
+						{visibleRequests.map((request) => {
+							const site = siteForRequest(request.siteId);
+							let searchUrl = "";
+							if (site?.type === "search" && site.url) {
+								try { searchUrl = buildSiteUrl(site, request.productName); } catch { searchUrl = ""; }
+							}
+							const supplierName = suppliers.find((supplier) => supplier.id === request.supplierId)?.name ?? request.supplierName ?? "Direct purchase";
+							const isOpen = ["Pending review", "Sourcing approved", "Approved"].includes(request.status);
+							return <article className="sourcing-request-row" key={request.id}>
+								<div className="sourcing-request-details">
+									<strong>{request.productName} <span>× {request.quantity.toLocaleString()} {request.quantity === 1 ? "unit" : "units"}</span></strong>
+									<span>{supplierName} · Requested by {request.requesterName} · {new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(request.createdAt))}</span>
+								</div>
+								<RequestStatus status={request.status} />
+								<div className="sourcing-history-actions">
+									{searchUrl ? <a className="search-site-link" href={searchUrl} target="_blank" rel="noreferrer">Search {site?.name}</a> : <span className="sourcing-no-search">No web search configured</span>}
+									{canReviewOrders && isOpen && request.supplierId && <button className="primary-button" onClick={() => recordOrderPlaced(request.id)}>Record order placed</button>}
+									{canReviewOrders && isOpen && !request.supplierId && <button className="secondary-button" onClick={() => { try { markRequestSubmitted(request.id); notify("Request marked submitted."); } catch (error) { notify(error instanceof Error ? error.message : "Could not update request."); } }}>Mark submitted</button>}
+								</div>
+							</article>;
+						})}
+					</div>
+				)}
+			</section>
 
-			{canManageSuppliers && <section className="panel sourcing-sites-panel">
-				<div className="panel-heading"><div><h2>Site and API templates</h2><p>Manager-configured destinations; API credentials and live integrations are not stored in this browser.</p></div></div>
-				<form className="site-template-form" onSubmit={submitSite}>
-					<label>Template name<input required maxLength={60} value={siteDraft.name} onChange={(event) => setSiteDraft({ ...siteDraft, name: event.target.value })} placeholder="e.g. Supplier catalog" /></label>
-					<label>Template type<select value={siteDraft.type} onChange={(event) => setSiteDraft({ ...siteDraft, type: event.target.value as SiteDraft["type"], url: "" })}><option value="search">Web search</option><option value="api">API endpoint template</option></select></label>
-					<label>{siteDraft.type === "search" ? "HTTPS search URL (include {query})" : "HTTPS API base endpoint"}<input required type="text" value={siteDraft.url} onChange={(event) => setSiteDraft({ ...siteDraft, url: event.target.value })} placeholder={siteDraft.type === "search" ? "https://shop.example/search?q={query}" : "https://api.example.com/v1"} /></label>
-					<div className="site-template-actions">{editingSiteId && <button className="secondary-button" type="button" onClick={() => { setEditingSiteId(null); setSiteDraft(emptySite); setSiteError(""); }}>Cancel edit</button>}<button className="primary-button" type="submit">{editingSiteId ? "Save template" : "Add template"}</button></div>
+			{newRequestOpen && <div className="edit-units-overlay"><section className="edit-units-dialog new-supplier-request-dialog" role="dialog" aria-modal="true" aria-labelledby="new-supplier-request-title">
+				<h2 id="new-supplier-request-title">Create order request</h2>
+				<p>Choose the supplier and optionally select a configured web search.</p>
+				<form onSubmit={submitNewRequest}>
+					<label htmlFor="new-request-product">Product</label>
+					<select id="new-request-product" required value={newRequestDraft.productName} onChange={(event) => setNewRequestDraft((current) => ({ ...current, productName: event.target.value }))}>
+						{products.map((product) => <option key={product.name} value={product.name}>{product.name}</option>)}
+					</select>
+					<label htmlFor="new-request-quantity">Quantity</label>
+					<input id="new-request-quantity" type="number" min="1" step="1" required value={newRequestDraft.quantity} onChange={(event) => setNewRequestDraft((current) => ({ ...current, quantity: event.target.value }))} />
+					<label htmlFor="new-request-supplier">Supplier</label>
+					<select id="new-request-supplier" required value={newRequestDraft.supplierId} onChange={(event) => setNewRequestDraft((current) => ({ ...current, supplierId: event.target.value }))}>
+						{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+					</select>
+					<label htmlFor="new-request-site">Search site (optional)</label>
+					<select id="new-request-site" value={newRequestDraft.siteId} onChange={(event) => setNewRequestDraft((current) => ({ ...current, siteId: event.target.value }))}>
+						<option value="">No web search</option>
+						{searchSites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+					</select>
+					{newRequestError && <p className="form-error" role="alert">{newRequestError}</p>}
+					<div className="edit-units-actions"><button type="button" className="cancel-edit" onClick={() => setNewRequestOpen(false)}>Cancel</button><button type="submit" className="save-edit" disabled={!products.length || !suppliers.length}>Create request</button></div>
 				</form>
-				{siteError && <p className="form-error" role="alert">{siteError}</p>}
-				<div className="site-template-list">{sites.map((site) => <div className="site-template-row" key={site.id}><div><strong>{site.name}</strong><span>{site.type === "search" ? "Web search" : "API template"} · {site.url}</span></div><div><button className="text-button" onClick={() => { setEditingSiteId(site.id); setSiteDraft({ name: site.name, type: site.type, url: site.url }); setSiteError(""); }}>Edit</button><button className="delete-supplier-button" disabled={requests.some((request) => request.siteId === site.id)} title={requests.some((request) => request.siteId === site.id) ? "Keep this template because requests reference it." : "Delete site template"} onClick={() => { try { deleteSite(site.id); notify("Site template deleted."); } catch (error) { notify(error instanceof Error ? error.message : "Could not delete template."); } }}>Delete</button></div></div>)}</div>
-				<p className="sourcing-safety-note">Templates only generate HTTPS search links. API entries are configuration placeholders—connecting an API requires a trusted server integration and credentials stored outside the browser.</p>
-			</section>}
+			</section></div>}
 		</PageTemplate>
 	);
 }
