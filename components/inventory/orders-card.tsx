@@ -1,15 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import type { StockOrder } from "@/components/inventory/products";
+import { useInventory } from "@/components/providers/inventory-provider";
+import { useNotify } from "@/components/layout/workspace-shell";
 
 type OrderFilter = "All" | "Outstanding" | "Received";
-
-type OrdersCardProps = {
-	orders: readonly StockOrder[];
-	onReceive: (orderId: string) => void;
-	onUpdateStatus: (orderId: string, status: StockOrder["status"]) => void;
-};
 
 const filters: OrderFilter[] = ["All", "Outstanding", "Received"];
 
@@ -17,7 +12,9 @@ function formatDate(value: string) {
 	return new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(value));
 }
 
-export default function OrdersCard({ orders, onReceive, onUpdateStatus }: OrdersCardProps) {
+export default function OrdersCard() {
+	const { orders, receiveOrder, updateOrderStatus } = useInventory();
+	const notify = useNotify();
 	const [filter, setFilter] = useState<OrderFilter>("All");
 	const visibleOrders = orders.filter((order) => {
 		if (filter === "All") return true;
@@ -47,7 +44,7 @@ export default function OrdersCard({ orders, onReceive, onUpdateStatus }: Orders
 							<div className="order-quantity"><strong>{order.quantity.toLocaleString()}</strong><span>units</span></div>
 							<div className="order-dates"><span>Ordered {formatDate(order.orderedAt)}</span>{order.receivedAt && <span>Received {formatDate(order.receivedAt)}</span>}</div>
 							<span className={`order-status ${order.status === "Received" ? "order-received" : "order-pending"}`}>{order.status}</span>
-							{order.status !== "Received" && <div className="order-actions">{order.status !== "Shipped" && <button className="update-order-button" onClick={() => onUpdateStatus(order.id, "Shipped")}>Mark shipped</button>}{order.status !== "Backorder" && <button className="update-order-button" onClick={() => onUpdateStatus(order.id, "Backorder")}>Backorder</button>}<button className="receive-order-button" onClick={() => onReceive(order.id)}>Mark received</button></div>}
+							{order.status !== "Received" && <div className="order-actions">{order.status !== "Shipped" && <button className="update-order-button" onClick={() => { updateOrderStatus(order.id, "Shipped"); notify("Order marked as shipped."); }}>Mark shipped</button>}{order.status !== "Backorder" && <button className="update-order-button" onClick={() => { updateOrderStatus(order.id, "Backorder"); notify("Order marked as backorder."); }}>Backorder</button>}<button className="receive-order-button" onClick={() => { if (receiveOrder(order.id)) notify(`${order.quantity} ${order.quantity === 1 ? "unit" : "units"} of ${order.productName} marked as received.`); else notify(`Could not receive the order for ${order.productName}.`); }}>Mark received</button></div>}
 						</article>
 					))}
 				</div>

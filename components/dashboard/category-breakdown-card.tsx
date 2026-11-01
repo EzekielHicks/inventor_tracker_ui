@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { Product } from "@/components/inventory/products";
+import type { Product } from "@/components/providers/inventory-provider";
 import Icon from "@/components/ui/icon";
 
 const categoryColors = [

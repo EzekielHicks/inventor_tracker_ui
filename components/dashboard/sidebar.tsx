@@ -1,42 +1,57 @@
 "use client";
 
 import Icon, { type IconName } from "@/components/ui/icon";
+import Link from "next/link";
+import { useUsers } from "@/components/providers/user-provider";
+import { useInventory } from "@/components/providers/inventory-provider";
 
 export type SidebarNav = "Overview" | "Inventory" | "Analytics" | "Suppliers";
 
 type SidebarProps = {
 	activeNav: SidebarNav;
-	onActiveNavChange: (label: SidebarNav) => void;
+	collapsed: boolean;
+	onToggleCollapsed: () => void;
+	onSwitchUser: () => void;
 	notify: (message: string) => void;
 };
 
-const navigationItems: { label: SidebarNav; icon: IconName }[] = [
-	{ label: "Overview", icon: "grid" },
-	{ label: "Inventory", icon: "box" },
-	{ label: "Analytics", icon: "chart" },
-	{ label: "Suppliers", icon: "users" },
+const navigationItems: { label: SidebarNav; icon: IconName; href: string }[] = [
+	{ label: "Overview", icon: "grid", href: "/overview" },
+	{ label: "Inventory", icon: "box", href: "/inventory" },
+	{ label: "Analytics", icon: "chart", href: "/analytics" },
+	{ label: "Suppliers", icon: "users", href: "/suppliers" },
 ];
 
-export default function Sidebar({ activeNav, onActiveNavChange, notify }: SidebarProps) {
+export default function Sidebar({ activeNav, collapsed, onToggleCollapsed, onSwitchUser, notify }: SidebarProps) {
+	const { activeUser } = useUsers();
+	const { stockOnHand } = useInventory();
+
 	return (
 		<aside className="sidebar">
-			<a className="brand" href="#overview" aria-label="Stockroom home"><span className="brand-mark"><Icon name="box" size={21} /></span><span>stockroom<span className="brand-dot">.</span></span></a>
-			<div className="workspace-label">WORKSPACE</div>
+			<div className="sidebar-brand-row">
+				<Link className="brand" href="/overview" aria-label="Stockroom overview"><span className="brand-mark"><Icon name="box" size={21} /></span><span className="sidebar-label">stockroom<span className="brand-dot">.</span></span></Link>
+				<button className="sidebar-toggle" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-pressed={collapsed} onClick={onToggleCollapsed}><Icon name="chevron" size={16} /></button>
+			</div>
+			<div className="workspace-label sidebar-label">WORKSPACE</div>
 
 			<nav className="nav-list" aria-label="Main navigation">
-				{navigationItems.map(({ label, icon }) => (
-					<button key={label} className={`nav-item ${activeNav === label ? "nav-active" : ""}`} onClick={() => { onActiveNavChange(label); if (label !== "Overview") notify(`${label} view selected`); }}>
+				{navigationItems.map(({ label, icon, href }) => (
+					<Link key={label} href={href} title={collapsed ? label : undefined} aria-current={activeNav === label ? "page" : undefined} className={`nav-item ${activeNav === label ? "nav-active" : ""}`}>
 						<Icon name={icon} />
-						<span>{label}</span>
-						{label === "Inventory" && <span className="nav-count">0</span>}
-					</button>
+						<span className="sidebar-label">{label}</span>
+						{label === "Inventory" && <span className="nav-count" title="Total units in inventory">{stockOnHand.toLocaleString()}</span>}
+					</Link>
 				))}
 			</nav>
 
 			<div className="sidebar-bottom">
-				<div className="help-card"><div className="help-icon">✦</div><strong>Need a hand?</strong><p>Visit our help center for tips and answers.</p><button onClick={() => notify("Help center is coming soon")}>Get help <span>↗</span></button></div>
-				<button className="nav-item settings-link" onClick={() => notify("Settings are coming soon")}><Icon name="settings" /><span>Settings</span></button>
-				<div className="profile"><div className="avatar">JD</div><div className="profile-copy"><strong>Jordan Davis</strong><span>Store manager</span></div><button className="profile-more" aria-label="More profile options" onClick={() => notify("Signed in as Jordan Davis")}><Icon name="more" /></button></div>
+				<div className="help-card"><div className="help-icon">✦</div><strong className="sidebar-label">Need a hand?</strong><p className="sidebar-label">Visit our help center for tips and answers.</p><button onClick={() => notify("Help center is coming soon")}><span className="sidebar-label">Get help</span><span>↗</span></button></div>
+				<button className="nav-item settings-link" title={collapsed ? "Settings" : undefined} onClick={() => notify("Settings are coming soon")}><Icon name="settings" /><span className="sidebar-label">Settings</span></button>
+				<button className="profile" onClick={onSwitchUser} title="Switch user">
+					<div className={`avatar ${activeUser.avatarColor}`}>{activeUser.initials}</div>
+					<div className="profile-copy sidebar-label"><strong>{activeUser.name}</strong><span>{activeUser.role}</span></div>
+					<span className="profile-more sidebar-label" aria-hidden="true"><Icon name="more" /></span>
+				</button>
 			</div>
 		</aside>
 	);

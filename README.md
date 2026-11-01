@@ -20,6 +20,28 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Environment variables
+
+The app does not currently require environment variables. Copy `.env.example` to `.env.local` when local configuration is needed, and keep secrets in `.env.local` rather than committing them.
+
+## Workspace pages
+
+- `/` is the local profile picker; profiles are stored in the browser.
+- `/overview` is the main dashboard.
+- `/inventory` manages products and stock orders.
+- `/analytics` summarizes stock levels and order statuses.
+- `/suppliers` summarizes orders by supplier.
+
+The sidebar collapse preference is stored in the browser. Inventory and order changes are shared while navigating workspace pages, but are currently reset when the page is refreshed.
+
+The Inventory page lets managers and admins add, edit, and remove products. Product usage totals, record counts, and most recent use are summarized in the inventory table; renaming a product carries its usage and order history forward. Products with pending sourcing requests or outstanding orders cannot be removed. Team members can view stock, record usage, and submit order requests but cannot change product records or stock directly. Inventory changes and usage history are shared across workspace pages but currently reset on refresh.
+
+To scaffold another workspace page, create a route under `app/(workspace)/<route>/` and render its page component from `components/pages/<route>/app.tsx`. Reuse `PageTemplate` for the page heading and shared content layout.
+
+## Supplier sourcing and approvals
+
+The Suppliers page stores supplier contacts, HTTPS search templates, API endpoint placeholders, and sourcing requests in browser storage. Each supplier card can submit item and quantity requests, then managers separately approve sourcing and the order. The Inventory page supports multiple product requests in one submission; each requested item appears under its selected supplier for review. The submitted quantity becomes the tracked stock-order quantity when a manager records the order as placed. Checkout remains a manual action. API templates do not make network calls or store credentials. These roles are local demo settings—not secure authorization. Connect authenticated accounts and trusted server-side integrations before using this for real inventory or purchasing.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
