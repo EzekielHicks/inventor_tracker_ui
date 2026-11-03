@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useInventory, type InventorySettings } from "@/components/providers/inventory-provider";
 import { useSuppliers, type SourcingSite } from "@/components/providers/supplier-provider";
 import { useUsers } from "@/components/providers/user-provider";
@@ -17,7 +17,7 @@ function InventoryThresholdSettings({ settings }: { settings: InventorySettings 
 	const [draft, setDraft] = useState(settings);
 	const [error, setError] = useState("");
 
-	const saveSettings = (event: FormEvent<HTMLFormElement>) => {
+	const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		setError("");
 		if (!Number.isSafeInteger(draft.defaultLowStockThreshold) || draft.defaultLowStockThreshold < 1) {
@@ -25,7 +25,7 @@ function InventoryThresholdSettings({ settings }: { settings: InventorySettings 
 			return;
 		}
 		try {
-			updateInventorySettings(draft);
+			await updateInventorySettings(draft);
 			notify("Inventory settings saved.");
 		} catch (saveError) {
 			setError(saveError instanceof Error ? saveError.message : "Could not save inventory settings.");
@@ -84,6 +84,157 @@ function InventoryThresholdSettings({ settings }: { settings: InventorySettings 
 	);
 }
 
+function DatabaseConnectionSettings() {
+	const [status, setStatus] = useState<"disconnected" | "testing" | "tested" | "connected" | "error">("disconnected");
+	const [message, setMessage] = useState("");
+
+	const checkConnection = async (connect: boolean) => {
+		setStatus("testing");
+		setMessage("");
+		try {
+			const response = await fetch("/api/database/connection", { method: "POST" });
+			const result: unknown = await response.json();
+			if (!response.ok) {
+				const errorMessage = typeof result === "object" && result !== null && "message" in result && typeof result.message === "string"
+					? result.message
+					: "Could not test the Supabase connection.";
+				throw new Error(errorMessage);
+			}
+			setStatus(connect ? "connected" : "tested");
+			setMessage(connect ? "Connected to Supabase." : "Connection test passed.");
+		} catch (error) {
+			setStatus("error");
+			setMessage(error instanceof Error ? error.message : "Could not test the Supabase connection.");
+		}
+	};
+
+	return (
+		<section className="panel database-connection-settings">
+			<div className="panel-heading">
+				<div><h2>Database connection</h2><p>Test or connect to the configured Supabase project.</p></div>
+				<span className={`database-connection-status database-connection-status-${status}`} role="status">
+					{status === "testing" ? "Checking…" : status === "connected" ? "Connected" : status === "tested" ? "Available" : status === "error" ? "Connection failed" : "Not connected"}
+				</span>
+			</div>
+			<p className="database-connection-message">{message || "Configure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY to enable a connection."}</p>
+			<div className="settings-actions">
+				<button className="secondary-button" type="button" disabled={status === "testing"} onClick={() => void checkConnection(false)}>Test connection</button>
+				<button className="primary-button" type="button" disabled={status === "testing"} onClick={() => void checkConnection(true)}>{status === "testing" ? "Connecting…" : "Connect database"}</button>
+			</div>
+			<p className="database-connection-note">The shared workspace uses Supabase Auth and row-level security. Apply the migration and configure the server-only service role key before inviting users.</p>
+		</section>
+	);
+}
+
+type WorkspaceMember = { user_id: string; display_name: string; role: "admin" | "manager" | "team_member" | "pending" };
+
+function isWorkspaceMember(member: unknown): member is WorkspaceMember {
+	return typeof member === "object" && member !== null
+		&& "user_id" in member && typeof member.user_id === "string"
+		&& "display_name" in member && typeof member.display_name === "string"
+		&& "role" in member && ["admin", "manager", "team_member", "pending"].includes(String(member.role));
+}
+
+async function fetchWorkspaceMembers(): Promise<WorkspaceMember[]> {
+	const response = await fetch("/api/accounts", { cache: "no-store" });
+	const result: unknown = await response.json();
+	if (!response.ok || typeof result !== "object" || result === null || !("members" in result) || !Array.isArray(result.members)) {
+		throw new Error(typeof result === "object" && result !== null && "message" in result && typeof result.message === "string" ? result.message : "Could not load workspace accounts.");
+	}
+	if (!result.members.every(isWorkspaceMember)) {
+		throw new Error("The workspace account list is invalid.");
+	}
+	return result.members;
+}
+
+function WorkspaceAccountsSettings() {
+	const { activeUser } = useUsers();
+	const [members, setMembers] = useState<WorkspaceMember[]>([]);
+	const [email, setEmail] = useState("");
+	const [name, setName] = useState("");
+	const [role, setRole] = useState<"manager" | "team_member">("team_member");
+	const [message, setMessage] = useState("");
+	const [error, setError] = useState("");
+	const [busy, setBusy] = useState(false);
+
+	const loadMembers = async () => setMembers(await fetchWorkspaceMembers());
+
+	useEffect(() => {
+		let cancelled = false;
+		const load = async () => {
+			try {
+				const loadedMembers = await fetchWorkspaceMembers();
+				if (!cancelled) setMembers(loadedMembers);
+			} catch (loadError) {
+				if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not load workspace accounts.");
+			}
+		};
+		void load();
+		return () => { cancelled = true; };
+	}, []);
+
+	const inviteMember = async (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		setBusy(true);
+		setError("");
+		setMessage("");
+		try {
+			const response = await fetch("/api/accounts", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ email, name, role }),
+			});
+			const result: unknown = await response.json();
+			if (!response.ok) throw new Error(typeof result === "object" && result !== null && "message" in result && typeof result.message === "string" ? result.message : "Could not send invitation.");
+			setMessage(typeof result === "object" && result !== null && "message" in result && typeof result.message === "string" ? result.message : "Invitation sent.");
+			setEmail("");
+			setName("");
+			await loadMembers();
+		} catch (inviteError) {
+			setError(inviteError instanceof Error ? inviteError.message : "Could not send invitation.");
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const updateRole = async (userId: string, nextRole: WorkspaceMember["role"]) => {
+		setError("");
+		try {
+			const response = await fetch("/api/accounts", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ userId, role: nextRole }),
+			});
+			const result: unknown = await response.json();
+			if (!response.ok) throw new Error(typeof result === "object" && result !== null && "message" in result && typeof result.message === "string" ? result.message : "Could not update account role.");
+			await loadMembers();
+		} catch (updateError) {
+			setError(updateError instanceof Error ? updateError.message : "Could not update account role.");
+		}
+	};
+
+	return (
+		<section className="panel workspace-accounts-settings">
+			<div className="panel-heading"><div><h2>Workspace accounts</h2><p>Invite teammates and manage their access.</p></div></div>
+			{activeUser.role === "Admin" && <form className="workspace-invite-form" onSubmit={inviteMember}>
+				<label>Name<input required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} /></label>
+				<label>Email<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+				<label>Role<select value={role} onChange={(event) => setRole(event.target.value as typeof role)}><option value="team_member">Team member</option><option value="manager">Manager</option></select></label>
+				<button className="primary-button" type="submit" disabled={busy}>{busy ? "Sending…" : "Invite teammate"}</button>
+			</form>}
+			{error && <p className="form-error" role="alert">{error}</p>}
+			{message && <p className="auth-message" role="status">{message}</p>}
+			<div className="workspace-member-list">{members.map((member) => <div className="workspace-member-row" key={member.user_id}>
+				<strong>{member.display_name}</strong>
+				{activeUser.role === "Admin" && member.user_id !== activeUser.id && member.role !== "admin"
+					? <select aria-label={`Role for ${member.display_name}`} value={member.role} onChange={(event) => void updateRole(member.user_id, event.target.value as WorkspaceMember["role"])}><option value="pending">Pending</option><option value="team_member">Team member</option><option value="manager">Manager</option></select>
+					: <span>{member.role === "team_member" ? "Team member" : member.role === "pending" ? "Pending access" : member.role[0].toUpperCase() + member.role.slice(1)}</span>}
+			</div>)}</div>
+			<p className="database-connection-note">New accounts require an email invitation. The first registered account becomes the workspace admin.</p>
+		</section>
+	);
+}
+
 function WebSourcingSettings() {
 	const { sites, requests, addSite, updateSite, deleteSite } = useSuppliers();
 	const notify = useNotify();
@@ -91,12 +242,12 @@ function WebSourcingSettings() {
 	const [editingSiteId, setEditingSiteId] = useState<string | null>(null);
 	const [error, setError] = useState("");
 
-	const saveSite = (event: FormEvent<HTMLFormElement>) => {
+	const saveSite = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		setError("");
 		try {
-			if (editingSiteId) updateSite(editingSiteId, draft);
-			else addSite(draft);
+			if (editingSiteId) await updateSite(editingSiteId, draft);
+			else await addSite(draft);
 			setDraft(emptySite);
 			setEditingSiteId(null);
 			notify(editingSiteId ? "Web sourcing template updated." : "Web sourcing template added.");
@@ -127,8 +278,8 @@ function WebSourcingSettings() {
 						<div><strong>{site.name}</strong><span>{site.type === "search" ? "Web search" : "API connection"} · {site.url || "Not connected"}</span></div>
 						<div>
 							<button className="text-button" type="button" onClick={() => { setEditingSiteId(site.id); setDraft({ name: site.name, type: site.type, url: site.url }); setError(""); }}>Edit</button>
-							<button className="delete-supplier-button" type="button" disabled={isReferenced} title={isReferenced ? "Keep this template because sourcing requests reference it." : "Delete template"} onClick={() => {
-								try { deleteSite(site.id); notify("Web sourcing template deleted."); }
+							<button className="delete-supplier-button" type="button" disabled={isReferenced} title={isReferenced ? "Keep this template because sourcing requests reference it." : "Delete template"} onClick={async () => {
+								try { await deleteSite(site.id); notify("Web sourcing template deleted."); }
 								catch (deleteError) { notify(deleteError instanceof Error ? deleteError.message : "Could not delete template."); }
 							}}>Delete</button>
 						</div>
@@ -157,6 +308,8 @@ export default function SettingsApp() {
 				</section>
 			) : (
 				<>
+					<DatabaseConnectionSettings />
+					<WorkspaceAccountsSettings />
 					<InventoryThresholdSettings
 						key={`${inventorySettings.lowStockThresholdEnabled}-${inventorySettings.defaultLowStockThreshold}`}
 						settings={inventorySettings}

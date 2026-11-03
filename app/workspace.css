@@ -89,6 +89,15 @@
 .order-row-readonly{grid-template-columns:minmax(140px,1.3fr) 70px minmax(150px,1fr) 90px}
 .settings-link{text-decoration:none}
 .settings-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(250px,.8fr);align-items:start;gap:16px}
+.database-connection-settings{margin-bottom:16px;padding:20px}
+.database-connection-status{flex:none;border-radius:20px;background:#f2f1f5;color:#777987;padding:6px 10px;font-size:9px;font-weight:700}
+.database-connection-status-testing{background:#fff4df;color:#b67d28}
+.database-connection-status-tested,.database-connection-status-connected{background:#e8f6ee;color:#4a9d70}
+.database-connection-status-error{background:#fff0ed;color:#b24a3b}
+.database-connection-message{margin:16px 0 0;color:#777987;font-size:11px}
+.database-connection-note{margin:12px 0 0;color:#9293a0;font-size:10px;line-height:1.5}
+.database-connection-settings .settings-actions{margin-top:16px}
+.database-connection-settings .settings-actions button:disabled{opacity:.55;cursor:not-allowed}
 .inventory-settings-panel,.settings-recommendation{padding:20px}
 .inventory-settings-form{display:grid;gap:22px;margin-top:22px}
 .settings-toggle{display:flex;align-items:flex-start;gap:11px}
@@ -115,6 +124,31 @@
 .sourcing-open-request{background:#fff4df;color:#b67d28}
 .supplier-request-actions .primary-button,.supplier-request-actions .secondary-button{padding:7px 9px;font-size:9px}
 @media(max-width:760px){.settings-grid{grid-template-columns:1fr}}
+.workspace-accounts-settings{margin-bottom:16px;padding:20px}
+.workspace-invite-form{display:grid;grid-template-columns:1fr 1.2fr 1fr auto;align-items:end;gap:10px;margin:17px 0}
+.workspace-invite-form label,.workspace-member-row{display:grid;gap:6px;color:#686a77;font-size:10px;font-weight:600}
+.workspace-invite-form input,.workspace-invite-form select,.workspace-member-row select{min-width:0;height:37px;border:1px solid #e6e5ed;border-radius:6px;background:#fff;padding:0 9px;color:#343541;font-size:11px}
+.workspace-invite-form .primary-button{height:37px;padding:0 11px;font-size:10px}
+.workspace-member-list{display:grid;margin-top:12px}
+.workspace-member-row{grid-template-columns:1fr 160px;align-items:center;border-top:1px solid #f0f0f4;padding:10px 0}
+.workspace-member-row strong{color:#454652}
+.workspace-member-row>span{color:#9293a0;font-weight:500}
+.auth-screen{min-height:100vh;display:flex;flex-direction:column;padding:32px clamp(20px,6vw,88px);background:radial-gradient(ellipse at 50% 45%,#fff 0%,#fbfaff 52%,#f4f3fa 100%);color:#292a36}
+.auth-screen>p{color:#777987}
+.auth-card{width:min(100%,420px);margin:auto;border:1px solid #eeeef3;border-radius:12px;background:#fff;padding:28px;box-shadow:0 12px 40px #2424320d}
+.auth-card h1,.workspace-loading h1{margin:8px 0 0;color:#292a36;font:700 22px 'Manrope',sans-serif}
+.auth-card>p,.workspace-loading p{margin:8px 0 20px;color:#858694;font-size:12px;line-height:1.55}
+.auth-form{display:grid;gap:13px}
+.auth-form label{display:grid;gap:6px;color:#454652;font-size:11px;font-weight:600}
+.auth-form input{height:39px;border:1px solid #dedee7;border-radius:6px;background:#fff;padding:0 10px;color:#292a36}
+.auth-form input:focus{outline:2px solid #7564d855;border-color:#7564d8}
+.auth-form .primary-button,.auth-card>.primary-button{width:100%;justify-content:center;margin-top:3px}
+.auth-mode-toggle{display:block;margin:17px auto 0;border:0;background:transparent;color:#6958c7;font-size:11px;font-weight:600}
+.auth-message{color:#4a9d70;font-size:11px;line-height:1.5}
+.workspace-loading{min-height:50vh;display:grid;place-items:center;padding:24px;color:#777987}
+.workspace-loading .panel{width:min(100%,440px);padding:24px}
+@media(max-width:760px){.workspace-invite-form{grid-template-columns:1fr 1fr}.workspace-member-row{grid-template-columns:1fr 130px}}
+@media(max-width:600px){.auth-screen{padding:24px 20px}.auth-card{padding:24px}}
 .approval-notice{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:15px 17px}
 .approval-notice-pending{border-color:#e9a98c;background:#fffaf7}
 .approval-notice-icon{width:34px;height:34px;display:grid;place-items:center;flex:none;border-radius:9px;background:#fff0e8;color:#c57b58}

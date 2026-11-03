@@ -105,7 +105,7 @@ export default function InventoryCard() {
 		});
 	};
 
-	const saveProduct = (event: FormEvent<HTMLFormElement>) => {
+	const saveProduct = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		setProductError("");
 		if (!canManageInventory) {
@@ -130,12 +130,12 @@ export default function InventoryCard() {
 		}
 		try {
 			if (productFormMode === "add") {
-				addProduct({ name: productDraft.name, category: productDraft.category, stock, unitCost, lowStockThreshold });
+				await addProduct({ name: productDraft.name, category: productDraft.category, stock, unitCost, lowStockThreshold });
 				notify(`${productDraft.name.trim()} added to inventory.`);
 			} else if (productFormMode === "edit" && editingProductName) {
-				updateProduct(editingProductName, { name: productDraft.name, category: productDraft.category, unitCost, lowStockThreshold });
+				await updateProduct(editingProductName, { name: productDraft.name, category: productDraft.category, unitCost, lowStockThreshold });
 				if (editingProductName !== productDraft.name.trim()) {
-					renameRequestedProduct(editingProductName, productDraft.name.trim());
+					await renameRequestedProduct(editingProductName, productDraft.name.trim());
 				}
 				notify(`${productDraft.name.trim()} updated.`);
 			}
@@ -146,7 +146,7 @@ export default function InventoryCard() {
 		}
 	};
 
-	const deleteProduct = (product: Product) => {
+	const deleteProduct = async (product: Product) => {
 		if (!canManageInventory) {
 			notify("Only managers and admins can remove inventory products.");
 			return;
@@ -159,7 +159,7 @@ export default function InventoryCard() {
 		}
 		if (!window.confirm(`Remove ${product.name} from inventory? Historical usage and received orders will be kept.`)) return;
 		try {
-			removeProduct(product.name);
+			await removeProduct(product.name);
 			setOpenOptionsFor(null);
 			notify(`${product.name} removed from inventory.`);
 		} catch (error) {
@@ -167,7 +167,7 @@ export default function InventoryCard() {
 		}
 	};
 
-	const saveDialog = (event: FormEvent<HTMLFormElement>) => {
+	const saveDialog = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (!dialogProduct || !dialogMode || draftUnits.trim() === "") return;
 		if (!canManageInventory) {
@@ -181,11 +181,11 @@ export default function InventoryCard() {
 		if (!Number.isSafeInteger(units) || units < (dialogMode === "order" ? 1 : 0)) return;
 
 		if (dialogMode === "edit") {
-			updateStock(dialogProduct.name, units);
+			await updateStock(dialogProduct.name, units);
 			notify(`${dialogProduct.name} quantity updated`);
 		} else {
 			if (!selectedSupplier) return;
-			orderStock(dialogProduct.name, units, selectedSupplier);
+			await orderStock(dialogProduct.name, units, selectedSupplier);
 			notify(`Order placed for ${units} ${units === 1 ? "unit" : "units"} of ${dialogProduct.name} from ${selectedSupplier}.`);
 		}
 		setDialogProduct(null);
@@ -198,11 +198,11 @@ export default function InventoryCard() {
 		setOrderRequestOpen(true);
 	};
 
-	const submitOrderRequest = (event: FormEvent<HTMLFormElement>) => {
+	const submitOrderRequest = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		setOrderRequestError("");
 		try {
-			requestSourcingBatch(orderRequestDrafts.map((draft) => ({
+			await requestSourcingBatch(orderRequestDrafts.map((draft) => ({
 				productName: draft.productName,
 				quantity: Number(draft.quantity),
 				supplierId: draft.supplierId,
@@ -262,14 +262,14 @@ export default function InventoryCard() {
 		}
 	};
 
-	const submitUsage = (event: FormEvent<HTMLFormElement>) => {
+	const submitUsage = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		setUsageError("");
 		try {
-			recordUsage(usageItems.map((item) => ({
+			await recordUsage(usageItems.map((item) => ({
 				productName: item.productName,
 				quantity: Number(item.quantity),
-			})), activeUser.name);
+			})), activeUser.name, activeUser.id);
 			notify(`Recorded usage for ${usageItems.length} ${usageItems.length === 1 ? "item" : "items"}.`);
 			setUsageItems([{ productName: products.find((product) => product.stock > 0)?.name ?? "", quantity: "1" }]);
 			closeUsageDialog();

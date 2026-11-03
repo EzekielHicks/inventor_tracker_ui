@@ -11,7 +11,7 @@ type SidebarProps = {
 	activeNav: SidebarNav;
 	collapsed: boolean;
 	onToggleCollapsed: () => void;
-	onSwitchUser: () => void;
+	onSignOut: () => void;
 	notify: (message: string) => void;
 };
 
@@ -22,7 +22,7 @@ const navigationItems: { label: SidebarNav; icon: IconName; href: string }[] = [
 	{ label: "Suppliers", icon: "users", href: "/suppliers" },
 ];
 
-export default function Sidebar({ activeNav, collapsed, onToggleCollapsed, onSwitchUser, notify }: SidebarProps) {
+export default function Sidebar({ activeNav, collapsed, onToggleCollapsed, onSignOut, notify }: SidebarProps) {
 	const { activeUser, canManageSuppliers, canManageInventory } = useUsers();
 	const { stockOnHand } = useInventory();
 	const visibleNavigationItems = navigationItems.filter(({ label }) => label !== "Suppliers" || canManageSuppliers);
@@ -48,7 +48,7 @@ export default function Sidebar({ activeNav, collapsed, onToggleCollapsed, onSwi
 			<div className="sidebar-bottom">
 				<div className="help-card"><div className="help-icon">✦</div><strong className="sidebar-label">Need a hand?</strong><p className="sidebar-label">Visit our help center for tips and answers.</p><button onClick={() => notify("Help center is coming soon")}><span className="sidebar-label">Get help</span><span>↗</span></button></div>
 				{canManageInventory && <Link className={`nav-item settings-link ${activeNav === "Settings" ? "nav-active" : ""}`} aria-current={activeNav === "Settings" ? "page" : undefined} href="/settings" title={collapsed ? "Settings" : undefined}><Icon name="settings" /><span className="sidebar-label">Settings</span></Link>}
-				<button className="profile" onClick={onSwitchUser} title="Switch user">
+				<button className="profile" onClick={onSignOut} title="Sign out">
 					<div className={`avatar ${activeUser.avatarColor}`}>{activeUser.initials}</div>
 					<div className="profile-copy sidebar-label"><strong>{activeUser.name}</strong><span>{activeUser.role}</span></div>
 					<span className="profile-more sidebar-label" aria-hidden="true"><Icon name="more" /></span>

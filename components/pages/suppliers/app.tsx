@@ -45,7 +45,7 @@ export default function SuppliersApp() {
 	const openRequests = useMemo(() => requests.filter((request) => ["Pending review", "Sourcing approved", "Approved"].includes(request.status)), [requests]);
 	const visibleRequests = canReviewOrders ? requests : requests.filter((request) => request.requesterId === activeUser.id);
 	const searchSites = sites.filter((site) => site.type === "search");
-	const submitSupplier = (event: FormEvent<HTMLFormElement>) => {
+	const submitSupplier = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		setSupplierError("");
 		if (!supplierDraft.name.trim() || !isValidContactUrl(supplierDraft.website)) {
@@ -55,9 +55,9 @@ export default function SuppliersApp() {
 		try {
 			if (editingSupplierId) {
 				const oldName = suppliers.find((supplier) => supplier.id === editingSupplierId)?.name;
-				updateSupplier(editingSupplierId, supplierDraft);
-				if (oldName && oldName !== supplierDraft.name.trim()) renameOrderSupplier(oldName, supplierDraft.name.trim());
-			} else addSupplier(supplierDraft);
+				await updateSupplier(editingSupplierId, supplierDraft);
+				if (oldName && oldName !== supplierDraft.name.trim()) await renameOrderSupplier(oldName, supplierDraft.name.trim());
+			} else await addSupplier(supplierDraft);
 			setSupplierDraft(emptySupplier);
 			setEditingSupplierId(null);
 			notify(editingSupplierId ? "Supplier updated." : "Supplier added.");
@@ -65,7 +65,7 @@ export default function SuppliersApp() {
 			setSupplierError(error instanceof Error ? error.message : "Could not save supplier.");
 		}
 	};
-	const submitRequest = (event: FormEvent<HTMLFormElement>, supplier: Supplier) => {
+	const submitRequest = async (event: FormEvent<HTMLFormElement>, supplier: Supplier) => {
 		event.preventDefault();
 		const draft = orderDrafts[supplier.id] ?? {
 			productName: products[0]?.name ?? "",
@@ -79,7 +79,7 @@ export default function SuppliersApp() {
 			return;
 		}
 		try {
-			requestSourcing({
+			await requestSourcing({
 				supplierId: supplier.id,
 				productName: selectedProduct.name,
 				quantity: Number(draft.quantity),
@@ -103,7 +103,7 @@ export default function SuppliersApp() {
 		setNewRequestError("");
 		setNewRequestOpen(true);
 	};
-	const submitNewRequest = (event: FormEvent<HTMLFormElement>) => {
+	const submitNewRequest = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		setNewRequestError("");
 		const product = products.find((item) => item.name === newRequestDraft.productName);
@@ -112,7 +112,7 @@ export default function SuppliersApp() {
 			return;
 		}
 		try {
-			requestSourcing({
+			await requestSourcing({
 				productName: product.name,
 				quantity: Number(newRequestDraft.quantity),
 				supplierId: newRequestDraft.supplierId,
@@ -127,7 +127,7 @@ export default function SuppliersApp() {
 			setNewRequestError(error instanceof Error ? error.message : "Could not create order request.");
 		}
 	};
-	const recordOrderPlaced = (requestId: string) => {
+	const recordOrderPlaced = async (requestId: string) => {
 		const request = requests.find((item) => item.id === requestId && ["Pending review", "Sourcing approved", "Approved"].includes(item.status));
 		const supplier = request?.supplierId ? suppliers.find((item) => item.id === request.supplierId) : undefined;
 		if (!request || !supplier) {
@@ -135,8 +135,8 @@ export default function SuppliersApp() {
 			return;
 		}
 		try {
-			markRequestSubmitted(request.id);
-			orderStock(request.productName, request.quantity, supplier.name);
+			await markRequestSubmitted(request.id);
+			await orderStock(request.productName, request.quantity, supplier.name);
 			notify(`Recorded order for ${request.quantity} ${request.quantity === 1 ? "unit" : "units"} of ${request.productName} from ${supplier.name}.`);
 		} catch (error) {
 			notify(error instanceof Error ? error.message : "Could not record the order.");
@@ -226,7 +226,7 @@ export default function SuppliersApp() {
 								</div>
 								{canManageSuppliers && <div className="supplier-card-actions">
 									<button className="text-button" onClick={() => { setEditingSupplierId(supplier.id); setSupplierDraft({ name: supplier.name, email: supplier.email, phone: supplier.phone, website: supplier.website }); setSupplierError(""); }}>Edit</button>
-									{deletingSupplierId === supplier.id ? <><span className="delete-confirm-label">{hasOrders ? "Has order history" : hasRequests ? "Has sourcing requests" : "Delete supplier?"}</span><button className="delete-supplier-button" disabled={hasOrders || hasRequests} onClick={() => { try { deleteSupplier(supplier.id); setDeletingSupplierId(null); notify("Supplier deleted."); } catch (error) { notify(error instanceof Error ? error.message : "Could not delete supplier."); } }}>Confirm</button><button className="text-button" onClick={() => setDeletingSupplierId(null)}>Cancel</button></> : <button className="delete-supplier-button" onClick={() => setDeletingSupplierId(supplier.id)}>Delete</button>}
+									{deletingSupplierId === supplier.id ? <><span className="delete-confirm-label">{hasOrders ? "Has order history" : hasRequests ? "Has sourcing requests" : "Delete supplier?"}</span><button className="delete-supplier-button" disabled={hasOrders || hasRequests} onClick={async () => { try { await deleteSupplier(supplier.id); setDeletingSupplierId(null); notify("Supplier deleted."); } catch (error) { notify(error instanceof Error ? error.message : "Could not delete supplier."); } }}>Confirm</button><button className="text-button" onClick={() => setDeletingSupplierId(null)}>Cancel</button></> : <button className="delete-supplier-button" onClick={() => setDeletingSupplierId(supplier.id)}>Delete</button>}
 								</div>}
 							</article>
 						);
@@ -255,7 +255,7 @@ export default function SuppliersApp() {
 								<div className="sourcing-history-actions">
 									{searchUrl ? <a className="search-site-link" href={searchUrl} target="_blank" rel="noreferrer">Search {site?.name}</a> : <span className="sourcing-no-search">No web search configured</span>}
 									{canReviewOrders && isOpen && request.supplierId && <button className="primary-button" onClick={() => recordOrderPlaced(request.id)}>Record order placed</button>}
-									{canReviewOrders && isOpen && !request.supplierId && <button className="secondary-button" onClick={() => { try { markRequestSubmitted(request.id); notify("Request marked submitted."); } catch (error) { notify(error instanceof Error ? error.message : "Could not update request."); } }}>Mark submitted</button>}
+									{canReviewOrders && isOpen && !request.supplierId && <button className="secondary-button" onClick={async () => { try { await markRequestSubmitted(request.id); notify("Request marked submitted."); } catch (error) { notify(error instanceof Error ? error.message : "Could not update request."); } }}>Mark submitted</button>}
 								</div>
 							</article>;
 						})}

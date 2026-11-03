@@ -71,7 +71,7 @@ export function useNotify() {
 export default function WorkspaceShell({ children }: { children: ReactNode }) {
 	const pathname = usePathname();
 	const router = useRouter();
-	const { activeUser, canReviewOrders } = useUsers();
+	const { activeUser, canReviewOrders, signOut } = useUsers();
 	const { requests } = useSuppliers();
 	const collapsed = useSyncExternalStore(subscribeToCollapsedPreference, getCollapsedSnapshot, () => false);
 	const [notice, setNotice] = useState("");
@@ -86,6 +86,14 @@ export default function WorkspaceShell({ children }: { children: ReactNode }) {
 	}, [notice]);
 
 	const notify = useMemo(() => (message: string) => setNotice(message), []);
+	const handleSignOut = async () => {
+		try {
+			await signOut();
+			router.replace("/");
+		} catch (error) {
+			notify(error instanceof Error ? error.message : "Could not sign out.");
+		}
+	};
 
 	return (
 		<NotificationContext.Provider value={notify}>
@@ -94,7 +102,7 @@ export default function WorkspaceShell({ children }: { children: ReactNode }) {
 					activeNav={activeNav}
 					collapsed={collapsed}
 					onToggleCollapsed={toggleCollapsedPreference}
-					onSwitchUser={() => router.push("/")}
+					onSignOut={() => void handleSignOut()}
 					notify={notify}
 				/>
 				<section className="main-area">
@@ -103,7 +111,7 @@ export default function WorkspaceShell({ children }: { children: ReactNode }) {
 						<div className="top-actions">
 							<div className="store-select"><span className="store-dot" /> Main Store <span className="down-caret">⌄</span></div>
 							<button className="icon-button notification-button" aria-label={openOrderRequests ? notificationLabel : "Notifications"} onClick={() => openOrderRequests ? router.push("/suppliers") : notify("You’re all caught up!")}><Icon name="bell" /><i />{openOrderRequests > 0 && <span className="notification-count">{openOrderRequests}</span>}</button>
-							<button className={`top-avatar ${activeUser.avatarColor}`} aria-label={`Switch user, currently ${activeUser.name}`} onClick={() => router.push("/")}>{activeUser.initials}</button>
+							<button className={`top-avatar ${activeUser.avatarColor}`} aria-label={`Sign out ${activeUser.name}`} onClick={() => void handleSignOut()}>{activeUser.initials}</button>
 						</div>
 					</header>
 					{children}
